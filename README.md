@@ -2,6 +2,11 @@
 
 > Unreal Engine 4.26 材质参数管理插件，参考 Core Grip Tech 的 *Material Layout Pro* 设计思路，用于在编辑器中可视化、分组、批量编辑材质参数。
 
+## 参考链接
+
+- 原版 Fab 商品页：https://www.fab.com/listings/723825e2-5792-400d-a9be-28423d1330b
+- 原版文档（GitBook）：https://core-grip-tech.gitbook.io/core-grip-tech-docs
+
 ---
 
 ## 当前功能
