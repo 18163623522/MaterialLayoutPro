@@ -1,14 +1,24 @@
 #include "Widgets/SMaterialLayoutProPanel.h"
 #include "MaterialLayoutProTheme.h"
+#include "MaterialLayoutProSettings.h"
+#include "MLPEditorData.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionComment.h"
+#include "Materials/MaterialExpressionScalarParameter.h"
+#include "Materials/MaterialExpressionVectorParameter.h"
+#include "Materials/MaterialExpressionTextureSampleParameter.h"
+#include "Materials/MaterialExpressionTextureObjectParameter.h"
+#include "Materials/MaterialExpressionStaticBoolParameter.h"
+#include "Materials/MaterialExpressionStaticSwitchParameter.h"
+#include "Engine/Texture.h"
 #include "Model/MaterialParameterScanner.h"
 #include "Model/MaterialParameterUsageAnalyzer.h"
-#include "Widgets/SMaterialParameterRow.h"
 #include "Widgets/SMaterialBulkRenameDialog.h"
+#include "Widgets/SMaterialSortWorkbench.h"
+#include "Widgets/SMaterialParameterEditor.h"
 
 #include "Editor.h"
 #include "Engine/Selection.h"
@@ -23,15 +33,21 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/SBoxPanel.h"
-#include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
-#include "Widgets/Input/SNumericEntryBox.h"
-#include "Widgets/Views/SListView.h"
-#include "Widgets/Views/SHeaderRow.h"
+#include "PropertyEditorModule.h"
+#include "IDetailsView.h"
 #include "Styling/CoreStyle.h"
+#include "Subsystems/AssetEditorSubsystem.h"
+
+#if ENGINE_MAJOR_VERSION >= 5
+#include "Styling/AppStyle.h"
+#define MLP_STYLE FAppStyle
+#else
 #include "EditorStyleSet.h"
+#define MLP_STYLE FEditorStyle
+#endif
 
 #define LOCTEXT_NAMESPACE "SMaterialLayoutProPanel"
 
@@ -42,34 +58,44 @@ SMaterialLayoutProPanel::~SMaterialLayoutProPanel()
 
 void SMaterialLayoutProPanel::Construct(const FArguments& InArgs)
 {
+	// Create the engine-native details view.
+	FPropertyEditorModule& PropEditor = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
+	FDetailsViewArgs Args;
+	Args.bUpdatesFromSelection = false;
+	Args.bLockable = false;
+	Args.bAllowSearch = true;
+	Args.NameAreaSettings = FDetailsViewArgs::HideNameArea;
+	Args.bHideSelectionTip = true;
+	Args.bShowOptions = false;
+	Args.bShowScrollBar = true;
+	Args.NotifyHook = nullptr;
+
+	DetailsView = PropEditor.CreateDetailView(Args);
+
 	ChildSlot
 	[
 		SNew(SBorder)
 		.BorderBackgroundColor(FMLPTheme::Background())
-		.BorderImage(FEditorStyle::GetBrush("WhiteBrush"))
-		.Padding(FMLPTheme::PadMD())
+		.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
+		.Padding(FMargin(6.f, 4.f, 6.f, 4.f))
 		[
 			SNew(SVerticalBox)
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(FMargin(0.f, 0.f, 0.f, 8.f))
+			+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(0,0,0,6))
 			[
 				BuildToolbar()
 			]
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(FMargin(0.f, 0.f, 0.f, 8.f))
+			+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(0,0,0,4))
 			[
 				BuildStatusBar()
 			]
-			+ SVerticalBox::Slot()
-			.FillHeight(1.0f)
+			+ SVerticalBox::Slot().FillHeight(1.0f)
 			[
 				SNew(SBorder)
 				.BorderBackgroundColor(FMLPTheme::Surface())
-				.BorderImage(FEditorStyle::GetBrush("WhiteBrush"))
+				.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
+				.Padding(1.f)
 				[
-					SAssignNew(GroupContainer, SVerticalBox)
+					DetailsView.ToSharedRef()
 				]
 			]
 		]
@@ -82,924 +108,293 @@ void SMaterialLayoutProPanel::Construct(const FArguments& InArgs)
 TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 {
 	return SNew(SHorizontalBox)
-		+ SHorizontalBox::Slot()
-		.AutoWidth()
-		.VAlign(VAlign_Center)
-		[
-			SNew(STextBlock)
-			.Text(LOCTEXT("TargetLabel", "Target: "))
-			.Font(FMLPTheme::FontBody())
-			.ColorAndOpacity(FMLPTheme::Muted())
-		]
-		+ SHorizontalBox::Slot()
-		.FillWidth(1.0f)
-		.VAlign(VAlign_Center)
-		.Padding(FMLPTheme::PadSM())
-		[
-			SNew(STextBlock)
-			.Text(this, &SMaterialLayoutProPanel::GetTargetMaterialName)
-			.Font(FMLPTheme::FontHeading())
-			.ColorAndOpacity(FMLPTheme::Foreground())
-		]
-		+ SHorizontalBox::Slot()
-		.AutoWidth()
-		.Padding(FMLPTheme::PadH())
-		[
-			SNew(SButton)
-			.Text(LOCTEXT("Refresh", "Refresh"))
-			.ToolTipText(LOCTEXT("RefreshTooltip", "Rescan parameters"))
-			.OnClicked(this, &SMaterialLayoutProPanel::OnRefreshClicked)
-		]
-		+ SHorizontalBox::Slot()
-		.AutoWidth()
-		.Padding(FMLPTheme::PadH())
-		[
-			SNew(SButton)
-			.Text(LOCTEXT("Select", "Select"))
-			.ToolTipText(LOCTEXT("SelectTooltip", "Locate material in Content Browser"))
-			.OnClicked(this, &SMaterialLayoutProPanel::OnSelectMaterialClicked)
-		]
-		+ SHorizontalBox::Slot()
-		.AutoWidth()
-		.Padding(FMLPTheme::PadH())
-		[
-			FMLPTheme::MakeSeparator()
-		]
-		+ SHorizontalBox::Slot()
-		.AutoWidth()
-		.Padding(FMLPTheme::PadH())
-		.VAlign(VAlign_Center)
-		[
-			SNew(STextBlock)
-			.Text(LOCTEXT("GroupLabel", "Group: "))
-			.Font(FMLPTheme::FontBody())
-			.ColorAndOpacity(FMLPTheme::Muted())
-		]
-		+ SHorizontalBox::Slot()
-		.AutoWidth()
-		.Padding(FMLPTheme::PadH())
-		.VAlign(VAlign_Center)
-		[
-			SAssignNew(SetGroupTextBox, SEditableTextBox)
-			.MinDesiredWidth(120.f)
-			.Font(FMLPTheme::FontBody())
-			.HintText(LOCTEXT("GroupHint", "selected"))
-		]
-		+ SHorizontalBox::Slot()
-		.AutoWidth()
-		.Padding(FMLPTheme::PadH())
-		[
-			SNew(SButton)
-			.Text(LOCTEXT("SetGroup", "Set"))
-			.ToolTipText(LOCTEXT("SetGroupTooltip", "Set Group for selected parameters"))
-			.OnClicked(this, &SMaterialLayoutProPanel::OnSetGroupClicked)
-		]
-		+ SHorizontalBox::Slot()
-		.AutoWidth()
-		.Padding(FMLPTheme::PadH())
-		[
-			SNew(SButton)
-			.Text(LOCTEXT("AutoGroup", "Auto Group"))
-			.ToolTipText(LOCTEXT("AutoGroupTooltip", "Auto-group parameters by name prefix"))
-			.OnClicked(this, &SMaterialLayoutProPanel::OnAutoGroupClicked)
-		]
-		+ SHorizontalBox::Slot()
-		.AutoWidth()
-		.Padding(FMLPTheme::PadH())
-		[
-			FMLPTheme::MakeSeparator()
-		]
-		+ SHorizontalBox::Slot()
-		.AutoWidth()
-		.Padding(FMLPTheme::PadH())
-		[
-			SNew(SButton)
-			.Text(LOCTEXT("Archive", "Archive Unused"))
-			.ToolTipText(LOCTEXT("ArchiveTooltip", "Move unused parameters to Deprecated group"))
-			.OnClicked(this, &SMaterialLayoutProPanel::OnArchiveUnusedClicked)
-		]
-		+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.Padding(FMLPTheme::PadH())
-			[
-				SNew(SButton)
-				.Text(LOCTEXT("Delete", "Delete Unused"))
-				.ToolTipText(LOCTEXT("DeleteTooltip", "Delete unused parameters"))
-				.OnClicked(this, &SMaterialLayoutProPanel::OnDeleteUnusedClicked)
-			]
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.Padding(FMLPTheme::PadH())
-			[
-				SNew(SButton)
-				.Text(LOCTEXT("BulkRename", "Bulk Rename"))
-				.ToolTipText(LOCTEXT("BulkRenameTooltip", "Bulk rename selected parameters"))
-				.OnClicked(this, &SMaterialLayoutProPanel::OnBulkRenameClicked)
-			]
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.Padding(FMLPTheme::PadH())
-			[
-				FMLPTheme::MakeSeparator()
-			]
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.Padding(FMLPTheme::PadH())
-			[
-				SNew(SButton)
-				.Text(LOCTEXT("Export", "Export"))
-				.ToolTipText(LOCTEXT("ExportTooltip", "Export parameter list to CSV"))
-				.OnClicked(this, &SMaterialLayoutProPanel::OnExportClicked)
-			];
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+		[ SNew(STextBlock).Text(LOCTEXT("TL","目标：")).Font(FMLPTheme::FontBody()).ColorAndOpacity(FMLPTheme::Muted()) ]
+		+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center).Padding(FMLPTheme::PadSM())
+		[ SNew(STextBlock).Text(this,&SMaterialLayoutProPanel::GetTargetMaterialName).Font(FMLPTheme::FontHeading()).ColorAndOpacity(FMLPTheme::Foreground()) ]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(FMLPTheme::PadH())
+		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("R","刷新")).ToolTipText(LOCTEXT("RT","重新扫描参数")).OnClicked(this,&SMaterialLayoutProPanel::OnRefreshClicked) ]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(FMLPTheme::PadH())
+		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("S","定位")).ToolTipText(LOCTEXT("ST","在内容浏览器中定位材质")).OnClicked(this,&SMaterialLayoutProPanel::OnSelectMaterialClicked) ]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(FMLPTheme::PadH())
+		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("OE","在编辑器中打开")).ToolTipText(LOCTEXT("OET","在材质编辑器中打开此材质")).OnClicked(this,&SMaterialLayoutProPanel::OnOpenMaterialEditorClicked) ]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(4,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMLPTheme::PadH())
+		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("AG","自动分组")).ToolTipText(LOCTEXT("AGT","按名称前缀自动分组参数")).OnClicked(this,&SMaterialLayoutProPanel::OnAutoGroupClicked) ]
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMLPTheme::PadH())
+		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("GBC","按注释分组")).ToolTipText(LOCTEXT("GBCT","按包含参数的注释框对参数进行分组")).OnClicked(this,&SMaterialLayoutProPanel::OnGroupByCommentClicked) ]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(4,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("AU","归档未使用")).ToolTipText(LOCTEXT("AUT","将未使用的参数移至已废弃分组")).OnClicked(this,&SMaterialLayoutProPanel::OnArchiveUnusedClicked) ]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton")
+			.ButtonColorAndOpacity(FMLPTheme::ButtonDanger()).ForegroundColor(FMLPTheme::ButtonTextOnColor())
+			.ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("DU","删除未使用")).ToolTipText(LOCTEXT("DUT","删除未使用的参数")).OnClicked(this,&SMaterialLayoutProPanel::OnDeleteUnusedClicked) ]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("BR","批量重命名")).ToolTipText(LOCTEXT("BRT","批量重命名选中的参数")).OnClicked(this,&SMaterialLayoutProPanel::OnBulkRenameClicked) ]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(4,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("EX","导出")).ToolTipText(LOCTEXT("EXT","将参数列表导出为 CSV")).OnClicked(this,&SMaterialLayoutProPanel::OnExportClicked) ]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("IM","导入")).ToolTipText(LOCTEXT("IMT","从 CSV 文件导入分组/排序优先级回材质")).OnClicked(this,&SMaterialLayoutProPanel::OnImportClicked) ]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("SW","排序工作台")).ToolTipText(LOCTEXT("SWT","打开独立窗口重新排列分组和排序优先级")).OnClicked(this,&SMaterialLayoutProPanel::OnSortWorkbenchClicked) ]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("PE","参数编辑器")).ToolTipText(LOCTEXT("PET","打开 Houdini 风格的参数编辑器")).OnClicked(this,&SMaterialLayoutProPanel::OnParameterEditorClicked) ]
+		;
 }
 
 TSharedRef<SWidget> SMaterialLayoutProPanel::BuildStatusBar()
 {
 	return SNew(SBorder)
-		.BorderBackgroundColor(FMLPTheme::SurfaceAlt())
-		.BorderImage(FEditorStyle::GetBrush("WhiteBrush"))
-		.Padding(FMLPTheme::PadSM())
+		.BorderBackgroundColor(FLinearColor(FMLPTheme::SurfaceAlt().R,FMLPTheme::SurfaceAlt().G,FMLPTheme::SurfaceAlt().B,0.7f))
+		.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
+		.Padding(FMargin(8,3))
 		[
-			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot()
-			.FillWidth(1.0f)
-			.VAlign(VAlign_Center)
-			[
-				SNew(STextBlock)
-				.Text(this, &SMaterialLayoutProPanel::GetStatusText)
-				.Font(FMLPTheme::FontSmall())
-				.ColorAndOpacity(FMLPTheme::Muted())
-			]
+			SNew(SHorizontalBox)+SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+			[ SNew(STextBlock).Text(this,&SMaterialLayoutProPanel::GetStatusText).Font(FMLPTheme::FontSmall()).ColorAndOpacity(FMLPTheme::Muted()) ]
 		];
-}
-
-TSharedRef<SWidget> SMaterialLayoutProPanel::BuildEmptyState()
-{
-	return SNew(SBox)
-		.HAlign(HAlign_Center)
-		.VAlign(VAlign_Center)
-		[
-			SNew(SVerticalBox)
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.HAlign(HAlign_Center)
-			[
-				SNew(STextBlock)
-				.Text(LOCTEXT("EmptyState", "Select a material in the Content Browser to view its parameters"))
-				.Font(FMLPTheme::FontTitle())
-				.ColorAndOpacity(FMLPTheme::Muted())
-			]
-		];
-}
-
-FReply SMaterialLayoutProPanel::OnRefreshClicked()
-{
-	RefreshParameters();
-	return FReply::Handled();
-}
-
-FReply SMaterialLayoutProPanel::OnSelectMaterialClicked()
-{
-	UObject* TargetObject = TargetMaterial.IsValid() ? (UObject*)TargetMaterial.Get() : (TargetMaterialInstance.IsValid() ? (UObject*)TargetMaterialInstance.Get() : nullptr);
-	if (TargetObject)
-	{
-		TArray<FAssetData> Assets;
-		Assets.Add(FAssetData(TargetObject));
-		FContentBrowserModule& ContentBrowserModule = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
-		ContentBrowserModule.Get().SyncBrowserToAssets(Assets, true);
-	}
-	return FReply::Handled();
-}
-
-FReply SMaterialLayoutProPanel::OnArchiveUnusedClicked()
-{
-	ArchiveUnused();
-	return FReply::Handled();
-}
-
-FReply SMaterialLayoutProPanel::OnDeleteUnusedClicked()
-{
-	DeleteUnused();
-	return FReply::Handled();
-}
-
-FReply SMaterialLayoutProPanel::OnSetGroupClicked()
-{
-	if (SetGroupTextBox.IsValid())
-	{
-		FName NewGroup(*SetGroupTextBox->GetText().ToString());
-		if (!NewGroup.IsNone())
-		{
-			ApplyGroupToSelected(NewGroup);
-		}
-	}
-	return FReply::Handled();
-}
-
-FReply SMaterialLayoutProPanel::OnAutoGroupClicked()
-{
-	AutoGroup();
-	return FReply::Handled();
-}
-
-FReply SMaterialLayoutProPanel::OnBulkRenameClicked()
-{
-	if (!TargetMaterial.IsValid())
-	{
-		return FReply::Handled();
-	}
-
-	TArray<TSharedPtr<FMLPParameterInfo>> SelectedParameters;
-	for (TSharedPtr<FMLPParameterInfo>& Param : Parameters)
-	{
-		if (Param.IsValid() && Param->bSelected)
-		{
-			SelectedParameters.Add(Param);
-		}
-	}
-
-	TArray<TSharedPtr<FMLPParameterInfo>> ParamsToRename = SelectedParameters.Num() > 0 ? SelectedParameters : Parameters;
-
-	TSharedRef<SWindow> BulkRenameDialog = SNew(SMaterialBulkRenameDialog)
-		.TargetMaterial(TargetMaterial)
-		.Parameters(ParamsToRename);
-
-	FSlateApplication::Get().AddWindow(BulkRenameDialog);
-	return FReply::Handled();
-}
-
-FReply SMaterialLayoutProPanel::OnGroupByCommentClicked()
-{
-	GroupByComment();
-	return FReply::Handled();
-}
-
-FReply SMaterialLayoutProPanel::OnExportClicked()
-{
-	if (Parameters.Num() == 0)
-	{
-		return FReply::Handled();
-	}
-
-	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
-	if (!DesktopPlatform)
-	{
-		return FReply::Handled();
-	}
-
-	const FString DefaultPath = FPaths::ProjectSavedDir();
-	const FString DefaultFileName = TargetMaterial.IsValid()
-		? FString::Printf(TEXT("%s_Parameters.csv"), *TargetMaterial->GetName())
-		: TEXT("MaterialParameters.csv");
-
-	TArray<FString> OutFilenames;
-	bool bSaved = DesktopPlatform->SaveFileDialog(
-		FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr),
-		LOCTEXT("ExportDialogTitle", "Export Parameters").ToString(),
-		DefaultPath,
-		DefaultFileName,
-		TEXT("CSV files|*.csv"),
-		EFileDialogFlags::None,
-		OutFilenames);
-
-	if (bSaved && OutFilenames.Num() > 0)
-	{
-		ExportParameters(OutFilenames[0]);
-	}
-
-	return FReply::Handled();
-}
-
-void SMaterialLayoutProPanel::ExportParameters(const FString& FilePath)
-{
-	FString CSV = TEXT("Name,Type,Group,SortPriority,Usage,Value\n");
-	for (const TSharedPtr<FMLPParameterInfo>& Param : Parameters)
-	{
-		if (!Param.IsValid()) continue;
-
-		CSV += FString::Printf(TEXT("%s,%s,%s,%d,%s,%s\n"),
-			*Param->Name.ToString(),
-			*Param->GetDisplayTypeName().ToString(),
-			*Param->Group.ToString(),
-			Param->SortPriority,
-			*Param->GetUsageLabel().ToString(),
-			*Param->ValueString);
-	}
-
-	FFileHelper::SaveStringToFile(CSV, *FilePath);
 }
 
 void SMaterialLayoutProPanel::OnSelectionChanged(UObject* Selection)
 {
-	UMaterial* NewMaterial = nullptr;
-	UMaterialInstance* NewMaterialInstance = nullptr;
-
+	UMaterial* NewMat = nullptr;
+	UMaterialInstance* NewMI = nullptr;
 	if (GEditor)
 	{
-		USelection* SelectedObjects = GEditor->GetSelectedObjects();
-		if (SelectedObjects)
+		USelection* Sel = GEditor->GetSelectedObjects();
+		if (Sel) for (FSelectionIterator It(*Sel); It; ++It)
 		{
-			for (FSelectionIterator It(*SelectedObjects); It; ++It)
-			{
-				UObject* Object = *It;
-				if (!NewMaterial && Object && Object->IsA<UMaterial>())
-				{
-					NewMaterial = Cast<UMaterial>(Object);
-					break;
-				}
-				if (!NewMaterialInstance && Object && Object->IsA<UMaterialInstance>())
-				{
-					NewMaterialInstance = Cast<UMaterialInstance>(Object);
-				}
-			}
+			UObject* O = *It;
+			if (!NewMat && O && O->IsA<UMaterial>()) { NewMat = Cast<UMaterial>(O); break; }
+			if (!NewMI && O && O->IsA<UMaterialInstance>()) NewMI = Cast<UMaterialInstance>(O);
 		}
 	}
-
-	TargetMaterial = NewMaterial;
-	TargetMaterialInstance = NewMaterialInstance;
+	if (NewMat == TargetMaterial.Get() && NewMI == TargetMaterialInstance.Get()) return;
+	TargetMaterial = NewMat; TargetMaterialInstance = NewMI;
 	RefreshParameters();
 }
 
 void SMaterialLayoutProPanel::RefreshParameters()
 {
-	Parameters.Reset();
-	Groups.Reset();
-	LastClickedItem.Reset();
-
-	if (TargetMaterial.IsValid())
+	// Create or reuse the wrapper object.
+	if (!EditorData || !IsValid(EditorData))
 	{
-		Parameters = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
-	}
-	else if (TargetMaterialInstance.IsValid())
-	{
-		Parameters = FMaterialParameterScanner::ScanMaterialInstance(TargetMaterialInstance.Get());
+		EditorData = NewObject<UMLPEditorData>(GetTransientPackage(), TEXT("MLPEditorData"));
 	}
 
 	if (TargetMaterial.IsValid())
 	{
-		FMaterialParameterUsageAnalyzer::Analyze(TargetMaterial.Get(), Parameters);
-	}
-
-	RebuildGroups();
-	RebuildGroupList();
-}
-
-void SMaterialLayoutProPanel::RebuildGroups()
-{
-	Groups.Reset();
-
-	TMap<FName, TSharedPtr<FMLPParameterGroup>> GroupMap;
-	for (TSharedPtr<FMLPParameterInfo>& Param : Parameters)
-	{
-		if (!Param.IsValid()) continue;
-
-		FName GroupName = Param->Group.IsNone() ? FName(TEXT("(None)")) : Param->Group;
-		TSharedPtr<FMLPParameterGroup>* Group = GroupMap.Find(GroupName);
-		if (!Group)
+		EditorData->BuildFromMaterial(TargetMaterial.Get());
+		if (DetailsView.IsValid())
 		{
-			TSharedPtr<FMLPParameterGroup> NewGroup = MakeShared<FMLPParameterGroup>();
-			NewGroup->Name = GroupName;
-			NewGroup->SortPriority = Param->SortPriority;
-			NewGroup->bExpanded = true;
-			GroupMap.Add(GroupName, NewGroup);
-			Groups.Add(NewGroup);
-			Group = &GroupMap.FindChecked(GroupName);
+			DetailsView->SetObject(EditorData, true);
 		}
-		(*Group)->Parameters.Add(Param);
-		(*Group)->SortPriority = FMath::Min((*Group)->SortPriority, Param->SortPriority);
-	}
-
-	Groups.Sort([](const TSharedPtr<FMLPParameterGroup>& A, const TSharedPtr<FMLPParameterGroup>& B)
-	{
-		if (A->SortPriority != B->SortPriority)
-		{
-			return A->SortPriority < B->SortPriority;
-		}
-		return A->Name.ToString() < B->Name.ToString();
-	});
-
-	for (TSharedPtr<FMLPParameterGroup>& Group : Groups)
-	{
-		Group->Parameters.Sort([](const TSharedPtr<FMLPParameterInfo>& A, const TSharedPtr<FMLPParameterInfo>& B)
-		{
-			if (A->SortPriority != B->SortPriority)
-			{
-				return A->SortPriority < B->SortPriority;
-			}
-			return A->Name.ToString() < B->Name.ToString();
-		});
-	}
-}
-
-void SMaterialLayoutProPanel::RebuildGroupList()
-{
-	if (!GroupContainer.IsValid())
-	{
-		return;
-	}
-
-	GroupContainer->ClearChildren();
-
-	if (Parameters.Num() == 0)
-	{
-		GroupContainer->AddSlot()
-			.FillHeight(1.0f)
-			[
-				BuildEmptyState()
-			];
-		return;
-	}
-
-	for (TSharedPtr<FMLPParameterGroup>& Group : Groups)
-	{
-		GroupContainer->AddSlot()
-			.AutoHeight()
-			[
-				BuildGroupHeader(Group)
-			];
-
-		if (Group->bExpanded)
-		{
-			for (TSharedPtr<FMLPParameterInfo>& Param : Group->Parameters)
-			{
-				GroupContainer->AddSlot()
-					.AutoHeight()
-					[
-						SNew(SMaterialParameterRow)
-						.Item(Param)
-						.bSelected(Param->bSelected)
-						.OnClicked(this, &SMaterialLayoutProPanel::OnRowClicked)
-						.OnGroupChanged(this, &SMaterialLayoutProPanel::OnParameterGroupChanged)
-						.OnPriorityChanged(this, &SMaterialLayoutProPanel::OnParameterPriorityChanged)
-					];
-			}
-		}
-	}
-}
-
-TSharedRef<SWidget> SMaterialLayoutProPanel::BuildGroupHeader(TSharedPtr<FMLPParameterGroup> Group)
-{
-	if (!Group.IsValid())
-	{
-		return SNew(STextBlock).Text(LOCTEXT("InvalidGroup", "Invalid Group"));
-	}
-
-	FText ExpandedText = Group->bExpanded ? FText::FromString(TEXT("\u25BC")) : FText::FromString(TEXT("\u25B6"));
-
-	return SNew(SBorder)
-		.BorderBackgroundColor(FMLPTheme::SurfaceAlt())
-		.BorderImage(FEditorStyle::GetBrush("WhiteBrush"))
-		.Padding(FMLPTheme::PadSM())
-		.OnMouseButtonDown_Lambda([this, Group](const FGeometry&, const FPointerEvent& MouseEvent)
-		{
-			if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
-			{
-				ToggleGroupExpansion(Group);
-				return FReply::Handled();
-			}
-			return FReply::Unhandled();
-		})
-		[
-			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.VAlign(VAlign_Center)
-			[
-				SNew(STextBlock)
-				.Text(ExpandedText)
-				.Font(FMLPTheme::FontBody())
-				.ColorAndOpacity(FMLPTheme::Muted())
-			]
-			+ SHorizontalBox::Slot()
-			.FillWidth(1.0f)
-			.VAlign(VAlign_Center)
-			.Padding(FMLPTheme::PadSM())
-			[
-				SNew(STextBlock)
-				.Text(FText::FromName(Group->Name))
-				.Font(FMLPTheme::FontHeading())
-				.ColorAndOpacity(FMLPTheme::Foreground())
-			]
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.VAlign(VAlign_Center)
-			[
-				SNew(STextBlock)
-				.Text(FText::Format(LOCTEXT("GroupCount", "{0}"), FText::AsNumber(Group->Parameters.Num())))
-				.Font(FMLPTheme::FontSmall())
-				.ColorAndOpacity(FMLPTheme::Muted())
-			]
-		];
-}
-
-void SMaterialLayoutProPanel::ClearSelection()
-{
-	for (TSharedPtr<FMLPParameterInfo>& Param : Parameters)
-	{
-		if (Param.IsValid())
-		{
-			Param->bSelected = false;
-		}
-	}
-}
-
-void SMaterialLayoutProPanel::ToggleGroupExpansion(TSharedPtr<FMLPParameterGroup> Group)
-{
-	if (Group.IsValid())
-	{
-		Group->bExpanded = !Group->bExpanded;
-		RebuildGroupList();
-	}
-}
-
-void SMaterialLayoutProPanel::OnRowClicked(TSharedPtr<FMLPParameterInfo> Item, const FPointerEvent& MouseEvent)
-{
-	if (!Item.IsValid())
-	{
-		return;
-	}
-
-	const bool bCtrlDown = MouseEvent.IsControlDown();
-	const bool bShiftDown = MouseEvent.IsShiftDown();
-
-	if (bShiftDown && LastClickedItem.IsValid())
-	{
-		// Range selection
-		TSharedPtr<FMLPParameterInfo> Start = LastClickedItem.Pin();
-		bool bInRange = false;
-		for (TSharedPtr<FMLPParameterInfo>& Param : Parameters)
-		{
-			if (Param == Start || Param == Item)
-			{
-				bInRange = !bInRange;
-				Param->bSelected = true;
-			}
-			else if (bInRange)
-			{
-				Param->bSelected = true;
-			}
-			else if (!bCtrlDown)
-			{
-				Param->bSelected = false;
-			}
-		}
-	}
-	else if (bCtrlDown)
-	{
-		Item->bSelected = !Item->bSelected;
 	}
 	else
 	{
-		ClearSelection();
-		Item->bSelected = true;
-	}
-
-	LastClickedItem = Item;
-	RebuildGroupList();
-}
-
-void SMaterialLayoutProPanel::OnParameterGroupChanged(TSharedPtr<FMLPParameterInfo> Item, FName NewGroup)
-{
-	ApplyGroupChange(Item, NewGroup);
-}
-
-void SMaterialLayoutProPanel::OnParameterPriorityChanged(TSharedPtr<FMLPParameterInfo> Item, int32 NewValue)
-{
-	ApplyPriorityChange(Item, NewValue);
-}
-
-void SMaterialLayoutProPanel::ApplyGroupChange(TSharedPtr<FMLPParameterInfo> Item, FName NewGroup)
-{
-	if (!Item.IsValid())
-	{
-		return;
-	}
-
-	const FScopedTransaction Transaction(LOCTEXT("ChangeParameterGroup", "Change Parameter Group"));
-	ApplyGroupChangeInternal(Item, NewGroup);
-	if (UMaterialExpression* Expression = Item->Expression.Get())
-	{
-		if (UMaterial* Material = Cast<UMaterial>(Expression->GetOuter()))
+		EditorData->ParameterGroups.Reset();
+		if (DetailsView.IsValid())
 		{
-			Material->PostEditChange();
-			Material->MarkPackageDirty();
+			DetailsView->SetObject(nullptr, true);
 		}
 	}
-	RefreshParameters();
 }
 
-void SMaterialLayoutProPanel::ApplyGroupChangeInternal(TSharedPtr<FMLPParameterInfo> Item, FName NewGroup)
+// --- Handlers that modify material then refresh ---
+
+void SMaterialLayoutProPanel::OnExportClicked_() {} // placeholder
+
+FReply SMaterialLayoutProPanel::OnRefreshClicked() { RefreshParameters(); return FReply::Handled(); }
+
+FReply SMaterialLayoutProPanel::OnSelectMaterialClicked()
 {
-	if (!Item.IsValid())
-	{
-		return;
-	}
-
-	UMaterialExpression* Expression = Item->Expression.Get();
-	if (!Expression)
-	{
-		return;
-	}
-
-	UMaterialExpressionParameter* ParamExpression = Cast<UMaterialExpressionParameter>(Expression);
-	if (!ParamExpression)
-	{
-		return;
-	}
-
-	ParamExpression->Modify();
-	ParamExpression->Group = NewGroup;
-	Item->Group = NewGroup;
+	UObject* O = TargetMaterial.IsValid() ? (UObject*)TargetMaterial.Get() : (TargetMaterialInstance.IsValid() ? (UObject*)TargetMaterialInstance.Get() : nullptr);
+	if (O) { TArray<FAssetData> A; A.Add(FAssetData(O)); auto& CB = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser"); CB.Get().SyncBrowserToAssets(A, true); }
+	return FReply::Handled();
 }
 
-void SMaterialLayoutProPanel::ApplyPriorityChange(TSharedPtr<FMLPParameterInfo> Item, int32 NewValue)
+FReply SMaterialLayoutProPanel::OnOpenMaterialEditorClicked()
 {
-	if (!Item.IsValid())
-	{
-		return;
-	}
-
-	const FScopedTransaction Transaction(LOCTEXT("ChangeParameterSortPriority", "Change Parameter Sort Priority"));
-	ApplyPriorityChangeInternal(Item, NewValue);
-	if (UMaterialExpression* Expression = Item->Expression.Get())
-	{
-		if (UMaterial* Material = Cast<UMaterial>(Expression->GetOuter()))
-		{
-			Material->PostEditChange();
-			Material->MarkPackageDirty();
-		}
-	}
-	RefreshParameters();
+	UObject* O = TargetMaterial.IsValid() ? (UObject*)TargetMaterial.Get() : (TargetMaterialInstance.IsValid() ? (UObject*)TargetMaterialInstance.Get() : nullptr);
+	if (O) GEditor->GetEditorSubsystem<UAssetEditorSubsystem>()->OpenEditorForAsset(O);
+	return FReply::Handled();
 }
 
-void SMaterialLayoutProPanel::ApplyPriorityChangeInternal(TSharedPtr<FMLPParameterInfo> Item, int32 NewValue)
+FReply SMaterialLayoutProPanel::OnSetGroupClicked() { return FReply::Handled(); }
+
+FReply SMaterialLayoutProPanel::OnArchiveUnusedClicked()
 {
-	if (!Item.IsValid())
-	{
-		return;
-	}
-
-	UMaterialExpression* Expression = Item->Expression.Get();
-	if (!Expression)
-	{
-		return;
-	}
-
-	UMaterialExpressionParameter* ParamExpression = Cast<UMaterialExpressionParameter>(Expression);
-	if (!ParamExpression)
-	{
-		return;
-	}
-
-	ParamExpression->Modify();
-	ParamExpression->SortPriority = NewValue;
-	Item->SortPriority = NewValue;
+	if (!TargetMaterial.IsValid()) return FReply::Handled();
+	const auto* S = GetDefault<UMaterialLayoutProSettings>();
+	const FName Dep(S ? *S->DeprecatedGroupName : TEXT("Deprecated"));
+	const FScopedTransaction T(LOCTEXT("AU","归档未使用的参数"));
+	auto* M = TargetMaterial.Get(); M->Modify();
+	auto Params = FMaterialParameterScanner::ScanMaterial(M);
+	FMaterialParameterUsageAnalyzer::Analyze(M, Params);
+	for (auto& P : Params) if (P->Usage == EMLPParameterUsage::Unused)
+		if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E->Modify(); E->Group = Dep; }
+	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
+	return FReply::Handled();
 }
 
-void SMaterialLayoutProPanel::ApplyGroupToSelected(FName NewGroup)
+FReply SMaterialLayoutProPanel::OnDeleteUnusedClicked()
 {
-	if (!TargetMaterial.IsValid() || GetSelectedCount() == 0)
-	{
-		return;
-	}
-
-	const FScopedTransaction Transaction(LOCTEXT("SetGroupSelected", "Set Group for Selected Parameters"));
-	for (TSharedPtr<FMLPParameterInfo>& Param : Parameters)
-	{
-		if (Param.IsValid() && Param->bSelected)
-		{
-			ApplyGroupChangeInternal(Param, NewGroup);
-		}
-	}
-	if (UMaterial* Material = TargetMaterial.Get())
-	{
-		Material->PostEditChange();
-		Material->MarkPackageDirty();
-	}
-	RefreshParameters();
+	if (!TargetMaterial.IsValid()) return FReply::Handled();
+	const FScopedTransaction T(LOCTEXT("DU","删除未使用的参数"));
+	auto* M = TargetMaterial.Get(); M->Modify();
+	auto Params = FMaterialParameterScanner::ScanMaterial(M);
+	FMaterialParameterUsageAnalyzer::Analyze(M, Params);
+	for (auto& P : Params) if (P->Usage == EMLPParameterUsage::Unused && P->Expression.IsValid())
+#if ENGINE_MAJOR_VERSION >= 5
+		M->GetExpressionCollection().RemoveExpression(P->Expression.Get());
+#else
+		M->Expressions.Remove(P->Expression.Get());
+#endif
+	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
+	return FReply::Handled();
 }
 
-void SMaterialLayoutProPanel::ArchiveUnused()
+FReply SMaterialLayoutProPanel::OnAutoGroupClicked()
 {
-	if (!TargetMaterial.IsValid() || !HasUnusedParameters())
-	{
-		return;
-	}
-
-	const FScopedTransaction Transaction(LOCTEXT("ArchiveUnusedParameters", "Archive Unused Parameters"));
-	for (TSharedPtr<FMLPParameterInfo>& Param : Parameters)
-	{
-		if (Param->Usage == EMLPParameterUsage::Unused)
-		{
-			ApplyGroupChangeInternal(Param, FName(TEXT("Deprecated")));
-		}
-	}
-	if (UMaterial* Material = TargetMaterial.Get())
-	{
-		Material->PostEditChange();
-		Material->MarkPackageDirty();
-	}
-	RefreshParameters();
+	if (!TargetMaterial.IsValid()) return FReply::Handled();
+	const auto* S = GetDefault<UMaterialLayoutProSettings>(); if (!S) return FReply::Handled();
+	const FScopedTransaction T(LOCTEXT("AG","自动分组参数"));
+	auto* M = TargetMaterial.Get(); M->Modify();
+	auto Params = FMaterialParameterScanner::ScanMaterial(M);
+	for (auto& P : Params) { if (!P.IsValid()) continue; const FString N = P->Name.ToString();
+		for (const auto& R : S->AutoGroupRules) if (N.StartsWith(R.Prefix)) {
+			if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E->Modify(); E->Group = FName(*R.Group); } break; } }
+	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
+	return FReply::Handled();
 }
 
-void SMaterialLayoutProPanel::DeleteUnused()
+FReply SMaterialLayoutProPanel::OnGroupByCommentClicked()
 {
-	if (!TargetMaterial.IsValid() || !HasUnusedParameters())
+	if (!TargetMaterial.IsValid()) return FReply::Handled();
+	auto* M = TargetMaterial.Get(); const FScopedTransaction T(LOCTEXT("GBC","按注释分组参数"));
+	M->Modify();
+#if ENGINE_MAJOR_VERSION >= 5
+	for (UMaterialExpression* E : M->GetExpressions())
+#else
+	for (UMaterialExpression* E : M->Expressions)
+#endif
 	{
-		return;
+		auto* C = Cast<UMaterialExpressionComment>(E); if (!C) continue;
+		FString Title = C->Text; Title.TrimStartAndEndInline(); if (Title.IsEmpty()) continue;
+		Title.ReplaceInline(TEXT(" "),TEXT("_")); Title.ReplaceInline(TEXT("-"),TEXT("_")); FName GN(*Title);
+		const FVector2D Min(C->MaterialExpressionEditorX,C->MaterialExpressionEditorY), Max(C->MaterialExpressionEditorX+C->SizeX,C->MaterialExpressionEditorY+C->SizeY);
+		auto Params = FMaterialParameterScanner::ScanMaterial(M);
+		for (auto& P : Params) { if (!P.IsValid()||!P->Expression.IsValid()) continue;
+			const FVector2D Pos(P->Expression->MaterialExpressionEditorX,P->Expression->MaterialExpressionEditorY);
+			if (Pos.X>=Min.X&&Pos.X<=Max.X&&Pos.Y>=Min.Y&&Pos.Y<=Max.Y)
+				if (auto* E2 = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E2->Modify(); E2->Group = GN; } }
 	}
-
-	const FScopedTransaction Transaction(LOCTEXT("DeleteUnusedParameters", "Delete Unused Parameters"));
-	UMaterial* Material = TargetMaterial.Get();
-	Material->Modify();
-
-	for (TSharedPtr<FMLPParameterInfo>& Param : Parameters)
-	{
-		if (Param->Usage == EMLPParameterUsage::Unused && Param->Expression.IsValid())
-		{
-			Material->Expressions.Remove(Param->Expression.Get());
-		}
-	}
-
-	Material->PostEditChange();
-	Material->MarkPackageDirty();
-	RefreshParameters();
+	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
+	return FReply::Handled();
 }
 
-void SMaterialLayoutProPanel::AutoGroup()
+FReply SMaterialLayoutProPanel::OnBulkRenameClicked()
 {
-	if (!TargetMaterial.IsValid())
-	{
-		return;
-	}
-
-	const FScopedTransaction Transaction(LOCTEXT("AutoGroupParameters", "Auto Group Parameters"));
-
-	// Simple prefix-based rules.
-	struct FAutoGroupRule
-	{
-		FString Prefix;
-		FString Group;
-	};
-	static const FAutoGroupRule Rules[] =
-	{
-		{ TEXT("MF_"),  TEXT("Master Faders") },
-		{ TEXT("Tex_"), TEXT("Textures") },
-		{ TEXT("Color_"),TEXT("Colors") },
-		{ TEXT("R_"),   TEXT("Channels") },
-		{ TEXT("G_"),   TEXT("Channels") },
-		{ TEXT("B_"),   TEXT("Channels") },
-		{ TEXT("A_"),   TEXT("Channels") },
-		{ TEXT("N_"),   TEXT("Normals") },
-		{ TEXT("Em_"),  TEXT("Emissive") },
-		{ TEXT("Rgh_"), TEXT("Roughness") },
-		{ TEXT("Met_"), TEXT("Metallic") },
-		{ TEXT("Sp_"),  TEXT("Specular") },
-	};
-
-	for (TSharedPtr<FMLPParameterInfo>& Param : Parameters)
-	{
-		if (!Param.IsValid()) continue;
-
-		const FString NameStr = Param->Name.ToString();
-		for (const FAutoGroupRule& Rule : Rules)
-		{
-			if (NameStr.StartsWith(Rule.Prefix))
-			{
-				ApplyGroupChangeInternal(Param, FName(*Rule.Group));
-				break;
-			}
-		}
-	}
-
-	if (UMaterial* Material = TargetMaterial.Get())
-	{
-		Material->PostEditChange();
-		Material->MarkPackageDirty();
-	}
-	RefreshParameters();
+	if (!TargetMaterial.IsValid()) return FReply::Handled();
+	auto Params = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
+	FSlateApplication::Get().AddWindow(SNew(SMaterialBulkRenameDialog).TargetMaterial(TargetMaterial).Parameters(Params)
+		.OnRenamed(FSimpleDelegate::CreateLambda([this](){ RefreshParameters(); })));
+	return FReply::Handled();
 }
 
-void SMaterialLayoutProPanel::BulkRename(const FString& Find, const FString& Replace, bool bRegex)
+FReply SMaterialLayoutProPanel::OnExportClicked()
 {
-	// TODO: implement bulk rename
+	if (!TargetMaterial.IsValid()) return FReply::Handled();
+	auto Params = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
+	FMaterialParameterUsageAnalyzer::Analyze(TargetMaterial.Get(), Params);
+	if (Params.Num()==0) return FReply::Handled();
+	auto* DP = FDesktopPlatformModule::Get(); if (!DP) return FReply::Handled();
+	TArray<FString> F;
+	if (DP->SaveFileDialog(nullptr, LOCTEXT("ED","导出参数").ToString(), FPaths::ProjectSavedDir(),
+		FString::Printf(TEXT("%s_Parameters.csv"), *TargetMaterial->GetName()), TEXT("CSV files|*.csv"), EFileDialogFlags::None, F) && F.Num()>0)
+	{
+		FString CSV = TEXT("Name,Type,Group,SortPriority,Usage,Value\n");
+		for (auto& P : Params) if (P.IsValid())
+			CSV += FString::Printf(TEXT("%s,%s,%s,%d,%s,%s\n"), *P->Name.ToString(), *P->GetDisplayTypeName().ToString(),
+				*P->Group.ToString(), P->SortPriority, *P->GetUsageLabel().ToString(), *P->ValueString);
+		FFileHelper::SaveStringToFile(CSV, *F[0]);
+	}
+	return FReply::Handled();
 }
 
-void SMaterialLayoutProPanel::GroupByComment()
+FReply SMaterialLayoutProPanel::OnImportClicked()
 {
-	if (!TargetMaterial.IsValid())
+	if (!TargetMaterial.IsValid()) return FReply::Handled();
+	auto* DP = FDesktopPlatformModule::Get(); if (!DP) return FReply::Handled();
+	TArray<FString> F;
+	if (DP->OpenFileDialog(nullptr, LOCTEXT("ID","从 CSV 导入参数").ToString(), FPaths::ProjectSavedDir(), TEXT(""), TEXT("CSV files|*.csv"), EFileDialogFlags::None, F) && F.Num()>0)
 	{
-		return;
+		FString C; if (!FFileHelper::LoadFileToString(C, *F[0])) return FReply::Handled();
+		TArray<FString> L; C.ParseIntoArrayLines(L); if (L.Num()<2) return FReply::Handled();
+		TMap<FName, UMaterialExpressionParameter*> M;
+#if ENGINE_MAJOR_VERSION >= 5
+		for (auto* E : TargetMaterial->GetExpressions())
+#else
+		for (auto* E : TargetMaterial->Expressions)
+#endif
+			if (auto* P = Cast<UMaterialExpressionParameter>(E)) M.Add(P->ParameterName, P);
+		const FScopedTransaction T(LOCTEXT("IP","从 CSV 导入参数"));
+		auto* Mat = TargetMaterial.Get(); Mat->Modify();
+		for (int32 i=1;i<L.Num();++i) { if (L[i].IsEmpty()) continue;
+			TArray<FString> Fl; L[i].ParseIntoArray(Fl, TEXT(","), false); if (Fl.Num()<4) continue;
+			auto** P = M.Find(FName(*Fl[0])); if (!P||!*P) continue;
+			(*P)->Modify(); (*P)->Group = FName(*Fl[2]); (*P)->SortPriority = FCString::Atoi(*Fl[3]); }
+		Mat->PostEditChange(); Mat->MarkPackageDirty(); RefreshParameters();
 	}
+	return FReply::Handled();
+}
 
-	const FScopedTransaction Transaction(LOCTEXT("GroupByComment", "Group Parameters by Comment"));
-	UMaterial* Material = TargetMaterial.Get();
-	Material->Modify();
+FReply SMaterialLayoutProPanel::OnSortWorkbenchClicked()
+{
+	if (!TargetMaterial.IsValid()) return FReply::Handled();
+	auto Params = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
+	FSlateApplication::Get().AddWindow(SNew(SMaterialSortWorkbench).TargetMaterial(TargetMaterial).Parameters(Params)
+		.OnApplied(FSimpleDelegate::CreateLambda([this](){ RefreshParameters(); })));
+	return FReply::Handled();
+}
 
-	for (UMaterialExpression* Expression : Material->Expressions)
-	{
-		UMaterialExpressionComment* Comment = Cast<UMaterialExpressionComment>(Expression);
-		if (!Comment)
-		{
-			continue;
-		}
-
-		FString CommentTitle = Comment->Text;
-		CommentTitle.TrimStartAndEndInline();
-		if (CommentTitle.IsEmpty())
-		{
-			continue;
-		}
-		// Clean title to make a valid FName/Group.
-		CommentTitle.ReplaceInline(TEXT(" "), TEXT("_"));
-		CommentTitle.ReplaceInline(TEXT("-"), TEXT("_"));
-		FName GroupName(*CommentTitle);
-
-		const FVector2D CommentMin(Comment->MaterialExpressionEditorX, Comment->MaterialExpressionEditorY);
-		const FVector2D CommentMax(Comment->MaterialExpressionEditorX + Comment->SizeX, Comment->MaterialExpressionEditorY + Comment->SizeY);
-
-		for (TSharedPtr<FMLPParameterInfo>& Param : Parameters)
-		{
-			if (!Param.IsValid() || !Param->Expression.IsValid()) continue;
-
-			UMaterialExpression* ParamExpression = Param->Expression.Get();
-			const FVector2D Pos(ParamExpression->MaterialExpressionEditorX, ParamExpression->MaterialExpressionEditorY);
-			if (Pos.X >= CommentMin.X && Pos.X <= CommentMax.X && Pos.Y >= CommentMin.Y && Pos.Y <= CommentMax.Y)
-			{
-				ApplyGroupChangeInternal(Param, GroupName);
-			}
-		}
-	}
-
-	Material->PostEditChange();
-	Material->MarkPackageDirty();
-	RefreshParameters();
+FReply SMaterialLayoutProPanel::OnParameterEditorClicked()
+{
+	if (!TargetMaterial.IsValid()) return FReply::Handled();
+	auto Params = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
+	FSlateApplication::Get().AddWindow(SNew(SMaterialParameterEditor).TargetMaterial(TargetMaterial).TargetInstance(TargetMaterialInstance)
+		.Parameters(Params).OnApplied(FSimpleDelegate::CreateLambda([this](){ RefreshParameters(); })));
+	return FReply::Handled();
 }
 
 FText SMaterialLayoutProPanel::GetTargetMaterialName() const
 {
-	if (TargetMaterial.IsValid())
-	{
-		return FText::Format(LOCTEXT("TargetMaterial", "{0}"), FText::FromString(TargetMaterial->GetName()));
-	}
-	if (TargetMaterialInstance.IsValid())
-	{
-		return FText::Format(LOCTEXT("TargetMaterialInstance", "{0} (Instance)"), FText::FromString(TargetMaterialInstance->GetName()));
-	}
-	return LOCTEXT("NoTarget", "Select a material");
+	if (TargetMaterial.IsValid()) return FText::Format(LOCTEXT("TM","{0}"), FText::FromString(TargetMaterial->GetName()));
+	if (TargetMaterialInstance.IsValid()) return FText::Format(LOCTEXT("TMI","{0}（实例）"), FText::FromString(TargetMaterialInstance->GetName()));
+	return LOCTEXT("NT","选择一个材质");
 }
 
 FText SMaterialLayoutProPanel::GetStatusText() const
 {
-	if (Parameters.Num() == 0)
-	{
-		if (!TargetMaterial.IsValid() && !TargetMaterialInstance.IsValid())
-		{
-			return LOCTEXT("NoSelectionStatus", "No material selected");
-		}
-		return LOCTEXT("NoParametersStatus", "No parameters found");
-	}
-
-	int32 UnusedCount = GetUnusedCount();
-	int32 SelectedCount = GetSelectedCount();
-
-	return FText::Format(
-		LOCTEXT("ParameterCountStatus", "{0} parameters | {1} unused | {2} selected | {3} groups"),
-		FText::AsNumber(Parameters.Num()),
-		FText::AsNumber(UnusedCount),
-		FText::AsNumber(SelectedCount),
-		FText::AsNumber(Groups.Num()));
-}
-
-int32 SMaterialLayoutProPanel::GetSelectedCount() const
-{
-	int32 Count = 0;
-	for (const TSharedPtr<FMLPParameterInfo>& Param : Parameters)
-	{
-		if (Param.IsValid() && Param->bSelected)
-		{
-			++Count;
-		}
-	}
-	return Count;
-}
-
-int32 SMaterialLayoutProPanel::GetUnusedCount() const
-{
-	int32 Count = 0;
-	for (const TSharedPtr<FMLPParameterInfo>& Param : Parameters)
-	{
-		if (Param.IsValid() && Param->Usage == EMLPParameterUsage::Unused)
-		{
-			++Count;
-		}
-	}
-	return Count;
-}
-
-bool SMaterialLayoutProPanel::HasUnusedParameters() const
-{
-	return GetUnusedCount() > 0;
+	if (!TargetMaterial.IsValid() && !TargetMaterialInstance.IsValid()) return LOCTEXT("NS","未选择材质");
+	if (!EditorData) return LOCTEXT("NP","未找到参数");
+	int32 Total = 0;
+	for (const auto& G : EditorData->ParameterGroups) Total += G.Parameters.Num();
+	if (Total == 0) return LOCTEXT("NP2","未找到参数");
+	return FText::Format(LOCTEXT("PC","{0} 个参数 | {1} 个分组"), FText::AsNumber(Total), FText::AsNumber(EditorData->ParameterGroups.Num()));
 }
 
 #undef LOCTEXT_NAMESPACE

@@ -6,7 +6,7 @@ void FMaterialLayoutProCommands::RegisterCommands()
 {
 	UI_COMMAND(
 		OpenPanel,
-		"Material Layout Pro",
+		"材质布局 Pro",
 		"Open the Material Layout Pro parameter manager panel.",
 		EUserInterfaceActionType::Button,
 		FInputChord());

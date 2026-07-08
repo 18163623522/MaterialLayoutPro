@@ -7,6 +7,19 @@ FText FMLPParameterInfo::GetDisplayTypeName() const
 	return Enum ? Enum->GetDisplayNameTextByValue((int64)Type) : FText::GetEmpty();
 }
 
+FText FMLPParameterInfo::GetTypeAbbreviation() const
+{
+	switch (Type)
+	{
+	case EMLPParameterType::Scalar:       return FText::FromString(TEXT("S"));
+	case EMLPParameterType::Vector:       return FText::FromString(TEXT("V"));
+	case EMLPParameterType::Texture:      return FText::FromString(TEXT("T"));
+	case EMLPParameterType::StaticBool:   return FText::FromString(TEXT("SB"));
+	case EMLPParameterType::StaticSwitch: return FText::FromString(TEXT("SS"));
+	default:                              return FText::FromString(TEXT("?"));
+	}
+}
+
 FLinearColor FMLPParameterInfo::GetTypeColor() const
 {
 	switch (Type)

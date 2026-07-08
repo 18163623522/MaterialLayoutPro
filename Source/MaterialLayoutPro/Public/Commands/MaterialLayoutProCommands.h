@@ -10,7 +10,7 @@ public:
 	FMaterialLayoutProCommands()
 		: TCommands<FMaterialLayoutProCommands>(
 			TEXT("MaterialLayoutPro"),
-			NSLOCTEXT("Contexts", "MaterialLayoutPro", "Material Layout Pro"),
+			NSLOCTEXT("Contexts", "MaterialLayoutPro", "材质布局 Pro"),
 			NAME_None,
 			FName(TEXT("MaterialLayoutProStyle")))
 	{

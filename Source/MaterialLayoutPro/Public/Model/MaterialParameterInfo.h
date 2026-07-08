@@ -12,22 +12,22 @@
 UENUM(BlueprintType)
 enum class EMLPParameterUsage : uint8
 {
-	Used        UMETA(DisplayName = "Used"),
-	Unused      UMETA(DisplayName = "Unused"),
-	HalfUsed    UMETA(DisplayName = "Half Used"),
-	Indirect    UMETA(DisplayName = "Indirect"),
-	Unknown     UMETA(DisplayName = "Unknown"),
+	Used        UMETA(DisplayName = "已使用"),
+	Unused      UMETA(DisplayName = "未使用"),
+	HalfUsed    UMETA(DisplayName = "部分使用"),
+	Indirect    UMETA(DisplayName = "间接"),
+	Unknown     UMETA(DisplayName = "未知"),
 };
 
 UENUM(BlueprintType)
 enum class EMLPParameterType : uint8
 {
-	Scalar        UMETA(DisplayName = "Scalar"),
-	Vector        UMETA(DisplayName = "Vector"),
-	Texture       UMETA(DisplayName = "Texture"),
-	StaticBool    UMETA(DisplayName = "Static Bool"),
-	StaticSwitch  UMETA(DisplayName = "Static Switch"),
-	Other         UMETA(DisplayName = "Other"),
+	Scalar        UMETA(DisplayName = "标量"),
+	Vector        UMETA(DisplayName = "向量"),
+	Texture       UMETA(DisplayName = "纹理"),
+	StaticBool    UMETA(DisplayName = "静态布尔"),
+	StaticSwitch  UMETA(DisplayName = "静态开关"),
+	Other         UMETA(DisplayName = "其他"),
 };
 
 /** Runtime metadata for a single material parameter. Plain struct to avoid UHT/UE name collisions. */
@@ -66,10 +66,15 @@ struct FMLPParameterInfo
 	/** True if this parameter has been detected as HalfUsed (e.g. MaterialAttributes switch). */
 	bool bHalfUsed = false;
 
+	/** True if another parameter shares the same name (duplicate/conflict alert). */
+	bool bHasDuplicateName = false;
+
 	FMLPParameterInfo() = default;
 
 	FText GetDisplayTypeName() const;
 	FLinearColor GetTypeColor() const;
+	/** Short abbreviation for the pill badge (S/V/T/SS/SB). */
+	FText GetTypeAbbreviation() const;
 	FText GetUsageLabel() const;
 	FLinearColor GetUsageColor() const;
 	FLinearColor GetUsageBgColor() const;

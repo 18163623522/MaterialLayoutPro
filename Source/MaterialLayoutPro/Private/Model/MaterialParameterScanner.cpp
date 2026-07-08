@@ -18,7 +18,11 @@ TArray<TSharedPtr<FMLPParameterInfo>> FMaterialParameterScanner::ScanMaterial(UM
 		return Result;
 	}
 
+#if ENGINE_MAJOR_VERSION >= 5
+	for (UMaterialExpression* Expression : Material->GetExpressions())
+#else
 	for (UMaterialExpression* Expression : Material->Expressions)
+#endif
 	{
 		if (!Expression)
 		{

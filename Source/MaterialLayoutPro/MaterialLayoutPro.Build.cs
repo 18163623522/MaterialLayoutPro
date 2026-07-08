@@ -36,6 +36,8 @@ public class MaterialLayoutPro : ModuleRules
 				"AssetRegistry",
 				"DesktopPlatform",
 				"ContentBrowser",
+				"DeveloperSettings",
+				"AppFramework",
 			}
 		);
 

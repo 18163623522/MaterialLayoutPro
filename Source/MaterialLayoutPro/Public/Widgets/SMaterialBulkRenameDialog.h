@@ -6,6 +6,9 @@
 
 class UMaterial;
 
+/** Broadcast after parameters have been renamed and the material post-edited. */
+DECLARE_DELEGATE(FOnParametersRenamed);
+
 /**
  * Modal dialog for bulk renaming material parameters.
  * Supports simple find/replace and optional regex matching.
@@ -14,8 +17,9 @@ class MATERIALLAYOUTPRO_API SMaterialBulkRenameDialog : public SWindow
 {
 public:
 	SLATE_BEGIN_ARGS(SMaterialBulkRenameDialog) {}
-	SLATE_ARGUMENT(TWeakObjectPtr<UMaterial>, TargetMaterial)
-	SLATE_ARGUMENT(TArray<TSharedPtr<FMLPParameterInfo>>, Parameters)
+		SLATE_ARGUMENT(TWeakObjectPtr<UMaterial>, TargetMaterial)
+		SLATE_ARGUMENT(TArray<TSharedPtr<FMLPParameterInfo>>, Parameters)
+		SLATE_EVENT(FOnParametersRenamed, OnRenamed)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
@@ -42,6 +46,8 @@ private:
 	TSharedPtr<SListView<TSharedPtr<FPreviewItem>>> PreviewList;
 
 	TArray<TSharedPtr<FPreviewItem>> PreviewData;
+
+	FOnParametersRenamed OnRenamed;
 
 	TSharedRef<ITableRow> OnGeneratePreviewRow(TSharedPtr<FPreviewItem> Item, const TSharedRef<STableViewBase>& OwnerTable);
 };

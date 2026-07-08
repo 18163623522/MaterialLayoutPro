@@ -2,25 +2,14 @@
 
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
-#include "Model/MaterialParameterInfo.h"
 
 class UMaterial;
 class UMaterialInstance;
 class UMaterialExpressionParameter;
+class IDetailsView;
+class UMLPEditorData;
+class SEditableTextBox;
 
-/** A group of parameters sharing the same Group name. */
-struct FMLPParameterGroup
-{
-	FName Name;
-	int32 SortPriority;
-	TArray<TSharedPtr<FMLPParameterInfo>> Parameters;
-	bool bExpanded = true;
-};
-
-/**
- * Main dockable panel for Material Layout Pro.
- * Shows material parameters grouped by Group, with type/status badges and bulk editing.
- */
 class MATERIALLAYOUTPRO_API SMaterialLayoutProPanel : public SCompoundWidget
 {
 public:
@@ -31,70 +20,38 @@ public:
 	virtual ~SMaterialLayoutProPanel() override;
 
 private:
-	void RefreshParameters();
-	void RebuildGroups();
-	void RebuildGroupList();
 	void OnSelectionChanged(UObject* Selection);
 
 	TSharedRef<SWidget> BuildToolbar();
 	TSharedRef<SWidget> BuildStatusBar();
-	TSharedRef<SWidget> BuildGroupList();
-	TSharedRef<SWidget> BuildGroupHeader(TSharedPtr<FMLPParameterGroup> Group);
-	TSharedRef<SWidget> BuildEmptyState();
+
+	void RefreshParameters();
 
 	FReply OnRefreshClicked();
 	FReply OnSelectMaterialClicked();
+	FReply OnOpenMaterialEditorClicked();
 	FReply OnArchiveUnusedClicked();
 	FReply OnDeleteUnusedClicked();
 	FReply OnSetGroupClicked();
 	FReply OnAutoGroupClicked();
 	FReply OnBulkRenameClicked();
 	FReply OnExportClicked();
+	FReply OnImportClicked();
+	FReply OnSortWorkbenchClicked();
+	FReply OnParameterEditorClicked();
 	FReply OnGroupByCommentClicked();
-
-	void OnRowClicked(TSharedPtr<FMLPParameterInfo> Item, const FPointerEvent& MouseEvent);
-	void OnGroupHeaderClicked(TSharedPtr<FMLPParameterGroup> Group);
-	void OnParameterGroupChanged(TSharedPtr<FMLPParameterInfo> Item, FName NewGroup);
-	void OnParameterPriorityChanged(TSharedPtr<FMLPParameterInfo> Item, int32 NewValue);
-	void ApplyGroupChange(TSharedPtr<FMLPParameterInfo> Item, FName NewGroup);
-	void ApplyPriorityChange(TSharedPtr<FMLPParameterInfo> Item, int32 NewValue);
-	void ApplyGroupToSelected(FName NewGroup);
-
-	void ApplyGroupChangeInternal(TSharedPtr<FMLPParameterInfo> Item, FName NewGroup);
-	void ApplyPriorityChangeInternal(TSharedPtr<FMLPParameterInfo> Item, int32 NewValue);
-
-	void SetSelected(TSharedPtr<FMLPParameterInfo> Item, bool bSelected);
-	void ClearSelection();
-	void ToggleGroupExpansion(TSharedPtr<FMLPParameterGroup> Group);
-	void ArchiveUnused();
-	void DeleteUnused();
-	void AutoGroup();
-	void BulkRename(const FString& Find, const FString& Replace, bool bRegex);
-	void GroupByComment();
-	void ExportParameters(const FString& FilePath);
 
 	FText GetTargetMaterialName() const;
 	FText GetStatusText() const;
-	int32 GetSelectedCount() const;
-	int32 GetUnusedCount() const;
-	bool HasUnusedParameters() const;
 
-	/** Currently displayed material. */
 	TWeakObjectPtr<UMaterial> TargetMaterial;
 	TWeakObjectPtr<UMaterialInstance> TargetMaterialInstance;
 
-	/** Flat parameter items. */
-	TArray<TSharedPtr<FMLPParameterInfo>> Parameters;
+	/** Engine-native details view — handles all parameter editing. */
+	TSharedPtr<IDetailsView> DetailsView;
 
-	/** Grouped parameters. */
-	TArray<TSharedPtr<FMLPParameterGroup>> Groups;
+	/** Wrapper object holding editable parameter data for IDetailsView. */
+	UPROPERTY() UMLPEditorData* EditorData;
 
-	/** Scroll box containing groups. */
-	TSharedPtr<SVerticalBox> GroupContainer;
-
-	/** Text box for bulk group assignment. */
 	TSharedPtr<SEditableTextBox> SetGroupTextBox;
-
-	/** Last clicked item for Shift+click range selection. */
-	TWeakPtr<FMLPParameterInfo> LastClickedItem;
 };

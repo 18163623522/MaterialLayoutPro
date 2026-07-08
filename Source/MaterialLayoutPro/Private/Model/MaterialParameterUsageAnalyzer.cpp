@@ -15,11 +15,107 @@ void FMaterialParameterUsageAnalyzer::Analyze(UMaterial* Material, TArray<TShare
 		return;
 	}
 
+	// Build a connection index in a SINGLE pass over all expressions:
+	//   ConnectedSet     — expressions directly referenced by some FExpressionInput
+	//   IndirectSet      — expressions referenced via NamedReroute / CustomOutput nodes
+	// This turns the per-parameter O(N*M) scan into O(M) build + O(N) lookup.
+	TSet<UMaterialExpression*> ConnectedSet;
+	TSet<UMaterialExpression*> IndirectSet;
+	TArray<UMaterialExpression*> IndirectNodes;
+
+#if ENGINE_MAJOR_VERSION >= 5
+	const auto& Expressions = Material->GetExpressions();
+#else
+	const auto& Expressions = Material->Expressions;
+#endif
+
+	for (UMaterialExpression* OtherExpression : Expressions)
+	{
+		if (!OtherExpression)
+		{
+			continue;
+		}
+
+		const FString ClassName = OtherExpression->GetClass()->GetName();
+		const bool bIsIndirect = ClassName.Contains(TEXT("NamedReroute")) || ClassName.Contains(TEXT("CustomOutput"));
+		if (bIsIndirect)
+		{
+			IndirectNodes.Add(OtherExpression);
+		}
+
+		for (TFieldIterator<FProperty> PropIt(OtherExpression->GetClass()); PropIt; ++PropIt)
+		{
+			FProperty* Property = *PropIt;
+			if (!Property)
+			{
+				continue;
+			}
+
+			if (FStructProperty* StructProp = CastField<FStructProperty>(Property))
+			{
+				if (IsExpressionInputProperty(StructProp))
+				{
+					FExpressionInput* Input = StructProp->ContainerPtrToValuePtr<FExpressionInput>(OtherExpression);
+					if (Input && Input->Expression)
+					{
+						ConnectedSet.Add(Input->Expression);
+						if (bIsIndirect)
+						{
+							IndirectSet.Add(Input->Expression);
+						}
+					}
+				}
+			}
+			else if (FArrayProperty* ArrayProp = CastField<FArrayProperty>(Property))
+			{
+				if (FStructProperty* InnerStructProp = CastField<FStructProperty>(ArrayProp->Inner))
+				{
+					if (IsExpressionInputProperty(InnerStructProp))
+					{
+						FScriptArrayHelper ArrayHelper(ArrayProp, ArrayProp->ContainerPtrToValuePtr<void>(OtherExpression));
+						for (int32 Idx = 0; Idx < ArrayHelper.Num(); ++Idx)
+						{
+							FExpressionInput* Input = reinterpret_cast<FExpressionInput*>(ArrayHelper.GetRawPtr(Idx));
+							if (Input && Input->Expression)
+							{
+								ConnectedSet.Add(Input->Expression);
+								if (bIsIndirect)
+								{
+									IndirectSet.Add(Input->Expression);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Now classify each parameter with O(1) set lookups instead of re-scanning.
 	for (TSharedPtr<FMLPParameterInfo>& Param : Parameters)
 	{
-		if (Param.IsValid())
+		if (!Param.IsValid())
 		{
-			Param->Usage = AnalyzeExpression(Param->Expression.Get(), Material);
+			continue;
+		}
+		UMaterialExpression* Expr = Param->Expression.Get();
+		if (!Expr)
+		{
+			Param->Usage = EMLPParameterUsage::Unknown;
+			continue;
+		}
+
+		if (ConnectedSet.Contains(Expr))
+		{
+			Param->Usage = EMLPParameterUsage::Used;
+		}
+		else if (IndirectSet.Contains(Expr))
+		{
+			Param->Usage = EMLPParameterUsage::Indirect;
+		}
+		else
+		{
+			Param->Usage = EMLPParameterUsage::Unused;
 		}
 	}
 }
@@ -63,7 +159,11 @@ bool FMaterialParameterUsageAnalyzer::HasAnyConnection(UMaterialExpression* Para
 		return false;
 	}
 
+#if ENGINE_MAJOR_VERSION >= 5
+	for (UMaterialExpression* OtherExpression : Material->GetExpressions())
+#else
 	for (UMaterialExpression* OtherExpression : Material->Expressions)
+#endif
 	{
 		if (!OtherExpression || OtherExpression == ParameterExpression)
 		{
@@ -120,7 +220,11 @@ bool FMaterialParameterUsageAnalyzer::HasIndirectConnection(UMaterialExpression*
 		return false;
 	}
 
+#if ENGINE_MAJOR_VERSION >= 5
+	for (UMaterialExpression* OtherExpression : Material->GetExpressions())
+#else
 	for (UMaterialExpression* OtherExpression : Material->Expressions)
+#endif
 	{
 		if (!OtherExpression || OtherExpression == ParameterExpression)
 		{
