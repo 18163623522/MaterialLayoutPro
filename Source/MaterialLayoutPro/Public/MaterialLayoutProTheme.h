@@ -6,6 +6,7 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/SWidget.h"
+#include "Model/MaterialParameterInfo.h"
 
 /**
  * Centralized design token system for the Material Layout Pro UI.
@@ -170,4 +171,34 @@ public:
 	static FLinearColor TabInactive()      { return FLinearColor(0.165f, 0.165f, 0.165f, 0.8f); }
 	/** Background color for a hovered inactive tab. */
 	static FLinearColor TabHover()         { return FLinearColor(0.227f, 0.227f, 0.227f, 0.9f); }
+
+	// Type → color/abbreviation mapping (lets VM rows build pills without FMLPParameterInfo).
+
+	/** Map a parameter type to its pin color. */
+	static FLinearColor GetTypeColorForType(EMLPParameterType Type)
+	{
+		switch (Type)
+		{
+		case EMLPParameterType::Scalar:       return TypeScalar();
+		case EMLPParameterType::Vector:       return TypeVector();
+		case EMLPParameterType::Texture:      return TypeTexture();
+		case EMLPParameterType::StaticBool:
+		case EMLPParameterType::StaticSwitch: return TypeStatic();
+		default:                              return Muted();
+		}
+	}
+
+	/** Map a parameter type to its short pill abbreviation (S/V/T/SB/SS). */
+	static FText GetTypeAbbrForType(EMLPParameterType Type)
+	{
+		switch (Type)
+		{
+		case EMLPParameterType::Scalar:       return FText::FromString(TEXT("S"));
+		case EMLPParameterType::Vector:       return FText::FromString(TEXT("V"));
+		case EMLPParameterType::Texture:      return FText::FromString(TEXT("T"));
+		case EMLPParameterType::StaticBool:   return FText::FromString(TEXT("SB"));
+		case EMLPParameterType::StaticSwitch: return FText::FromString(TEXT("SS"));
+		default:                              return FText::FromString(TEXT("?"));
+		}
+	}
 };
