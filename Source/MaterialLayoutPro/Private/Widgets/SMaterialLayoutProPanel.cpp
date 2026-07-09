@@ -1,7 +1,7 @@
 #include "Widgets/SMaterialLayoutProPanel.h"
 #include "MaterialLayoutProTheme.h"
 #include "MaterialLayoutProSettings.h"
-#include "MLPEditorData.h"
+#include "Model/MaterialParameterScanner.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialExpression.h"
@@ -36,8 +36,6 @@
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
-#include "PropertyEditorModule.h"
-#include "IDetailsView.h"
 #include "Styling/CoreStyle.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 
@@ -58,20 +56,6 @@ SMaterialLayoutProPanel::~SMaterialLayoutProPanel()
 
 void SMaterialLayoutProPanel::Construct(const FArguments& InArgs)
 {
-	// Create the engine-native details view.
-	FPropertyEditorModule& PropEditor = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
-	FDetailsViewArgs Args;
-	Args.bUpdatesFromSelection = false;
-	Args.bLockable = false;
-	Args.bAllowSearch = true;
-	Args.NameAreaSettings = FDetailsViewArgs::HideNameArea;
-	Args.bHideSelectionTip = true;
-	Args.bShowOptions = false;
-	Args.bShowScrollBar = true;
-	Args.NotifyHook = nullptr;
-
-	DetailsView = PropEditor.CreateDetailView(Args);
-
 	ChildSlot
 	[
 		SNew(SBorder)
@@ -94,8 +78,14 @@ void SMaterialLayoutProPanel::Construct(const FArguments& InArgs)
 				.BorderBackgroundColor(FMLPTheme::Surface())
 				.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
 				.Padding(1.f)
+				.HAlign(HAlign_Center)
+				.VAlign(VAlign_Center)
 				[
-					DetailsView.ToSharedRef()
+					SNew(STextBlock)
+					.Text(LOCTEXT("Phase1Placeholder", "ViewModel 层已就绪\n主面板将在阶段 2 重写"))
+					.Font(FMLPTheme::FontBody())
+					.ColorAndOpacity(FMLPTheme::Muted())
+					.Justification(ETextJustify::Center)
 				]
 			]
 		]
@@ -189,33 +179,12 @@ void SMaterialLayoutProPanel::OnSelectionChanged(UObject* Selection)
 
 void SMaterialLayoutProPanel::RefreshParameters()
 {
-	// Create or reuse the wrapper object.
-	if (!EditorData || !IsValid(EditorData))
-	{
-		EditorData = NewObject<UMLPEditorData>(GetTransientPackage(), TEXT("MLPEditorData"));
-	}
-
-	if (TargetMaterial.IsValid())
-	{
-		EditorData->BuildFromMaterial(TargetMaterial.Get());
-		if (DetailsView.IsValid())
-		{
-			DetailsView->SetObject(EditorData, true);
-		}
-	}
-	else
-	{
-		EditorData->ParameterGroups.Reset();
-		if (DetailsView.IsValid())
-		{
-			DetailsView->SetObject(nullptr, true);
-		}
-	}
+	// Phase 1 interim: no DetailsView/EditorData. Toolbar handlers operate on the
+	// material directly and call this to keep the status bar text in sync. The
+	// Session-backed parameter tree arrives in Phase 2.
 }
 
 // --- Handlers that modify material then refresh ---
-
-void SMaterialLayoutProPanel::OnExportClicked_() {} // placeholder
 
 FReply SMaterialLayoutProPanel::OnRefreshClicked() { RefreshParameters(); return FReply::Handled(); }
 
@@ -390,11 +359,13 @@ FText SMaterialLayoutProPanel::GetTargetMaterialName() const
 FText SMaterialLayoutProPanel::GetStatusText() const
 {
 	if (!TargetMaterial.IsValid() && !TargetMaterialInstance.IsValid()) return LOCTEXT("NS","未选择材质");
-	if (!EditorData) return LOCTEXT("NP","未找到参数");
-	int32 Total = 0;
-	for (const auto& G : EditorData->ParameterGroups) Total += G.Parameters.Num();
-	if (Total == 0) return LOCTEXT("NP2","未找到参数");
-	return FText::Format(LOCTEXT("PC","{0} 个参数 | {1} 个分组"), FText::AsNumber(Total), FText::AsNumber(EditorData->ParameterGroups.Num()));
+	if (!TargetMaterial.IsValid()) return LOCTEXT("NP","未找到参数");
+	// Phase 1 interim: count via the scanner directly (EditorData removed).
+	auto Params = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
+	if (Params.Num() == 0) return LOCTEXT("NP2","未找到参数");
+	TSet<FName> Groups;
+	for (const auto& P : Params) if (P.IsValid()) Groups.Add(P->Group.IsNone() ? FName(TEXT("(None)")) : P->Group);
+	return FText::Format(LOCTEXT("PC","{0} 个参数 | {1} 个分组"), FText::AsNumber(Params.Num()), FText::AsNumber(Groups.Num()));
 }
 
 #undef LOCTEXT_NAMESPACE
