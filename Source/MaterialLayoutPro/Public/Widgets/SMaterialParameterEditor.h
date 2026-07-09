@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Widgets/SWindow.h"
 #include "Model/MaterialParameterInfo.h"
+#include "Model/MaterialLayoutViewModel.h"
 
 class UMaterial;
 class UMaterialInstance;
@@ -16,19 +17,18 @@ DECLARE_DELEGATE(FOnParameterEditorApplied);
  * Houdini-style standalone parameter editor window.
  *
  * Shows parameters in user-defined virtual tabs (independent of the material's Group),
- * with inline value editing (Scalar/Vector/Texture/Switch). All edits happen in a
- * working copy — nothing touches the material until the user clicks Apply.
- *
- * Apply writes back to the material (Group/SortPriority/Value) and optionally to a
- * material instance (value overrides) in a single FScopedTransaction.
+ * with inline value editing. Shares the main panel's FMLPSession snapshot, so value
+ * edits land on the VM; "应用到材质" flushes via Session::PushDirty(), "应用到实例"
+ * reads VM values and writes them as instance overrides.
  */
 class MATERIALLAYOUTPRO_API SMaterialParameterEditor : public SWindow
 {
 public:
 	SLATE_BEGIN_ARGS(SMaterialParameterEditor) {}
-		SLATE_ARGUMENT(TWeakObjectPtr<UMaterial>, TargetMaterial)
+		/** Shared session snapshot (owned by the main panel). */
+		SLATE_ARGUMENT(TSharedPtr<FMLPSession>, Session)
+		/** Optional material instance for "apply to instance". */
 		SLATE_ARGUMENT(TWeakObjectPtr<UMaterialInstance>, TargetInstance)
-		SLATE_ARGUMENT(TArray<TSharedPtr<FMLPParameterInfo>>, Parameters)
 		SLATE_EVENT(FOnParameterEditorApplied, OnApplied)
 	SLATE_END_ARGS()
 
@@ -39,47 +39,35 @@ private:
 	struct FVirtualTab
 	{
 		FName Name;
-		TArray<TSharedPtr<FMLPParameterInfo>> Parameters;
+		TArray<TSharedPtr<FMLPParamVM>> Parameters;
 	};
 
-	/** Deep-copy the source parameters into a working set. */
-	void InitWorkParameters(const TArray<TSharedPtr<FMLPParameterInfo>>& Source);
-	/** Create default tabs from the material's existing Group field. */
+	/** Create default tabs from the VM groups (one tab per group). */
 	void InitDefaultTabs();
-
 	/** Rebuild the tab bar + active tab content. */
 	void RebuildUI();
 	/** Build the tab bar row (tabs + "+" button). */
 	TSharedRef<SWidget> BuildTabBar();
 	/** Build the content for the currently active tab. */
 	TSharedRef<SWidget> BuildTabContent();
-	/** Build a single parameter row with value editor. */
-	TSharedRef<SWidget> BuildParamRow(TSharedPtr<FMLPParameterInfo> Param);
+	/** Build a single parameter row with value editor bound to its VM. */
+	TSharedRef<SWidget> BuildParamRow(TSharedPtr<FMLPParamVM> Param);
 
 	/** Select a tab by index. */
 	FReply SelectTab(int32 TabIndex);
-	/** Create a new virtual tab (prompts for name). */
+	/** Create a new virtual tab. */
 	FReply OnAddTabClicked();
 	/** Move a parameter to a different tab. */
-	void MoveParameterToTab(TSharedPtr<FMLPParameterInfo> Param, int32 TargetTabIndex);
+	void MoveParameterToTab(TSharedPtr<FMLPParamVM> Param, int32 TargetTabIndex);
 
-	/** Value-edit callbacks — update the working copy only (no material write). */
-	void OnScalarChanged(TSharedPtr<FMLPParameterInfo> Param, float NewValue);
-	void OnVectorChanged(TSharedPtr<FMLPParameterInfo> Param, const FLinearColor& NewColor);
-	void OnTextureChanged(TSharedPtr<FMLPParameterInfo> Param, UObject* NewTexture);
-	void OnBoolChanged(TSharedPtr<FMLPParameterInfo> Param, bool bNewValue);
-	void OnGroupChanged(TSharedPtr<FMLPParameterInfo> Param, const FText& NewText, ETextCommit::Type CommitType);
-	void OnPriorityChanged(TSharedPtr<FMLPParameterInfo> Param, int32 NewValue, ETextCommit::Type CommitType);
-
-	/** Write all working-copy changes back to the material. */
+	/** Write all VM changes back to the material (Session::PushDirty). */
 	FReply OnApplyToMaterialClicked();
-	/** Write parameter value overrides back to the material instance. */
+	/** Read VM values and write them as material-instance overrides. */
 	FReply OnApplyToInstanceClicked();
 	FReply OnCancelClicked();
 
-	TWeakObjectPtr<UMaterial> TargetMaterial;
+	TSharedPtr<FMLPSession> Session;
 	TWeakObjectPtr<UMaterialInstance> TargetInstance;
-	TArray<TSharedPtr<FMLPParameterInfo>> WorkParameters;
 	TArray<TSharedPtr<FVirtualTab>> VirtualTabs;
 	int32 ActiveTabIndex = 0;
 

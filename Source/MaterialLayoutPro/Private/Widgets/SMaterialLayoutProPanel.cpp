@@ -669,9 +669,9 @@ FReply SMaterialLayoutProPanel::OnSortWorkbenchClicked()
 FReply SMaterialLayoutProPanel::OnParameterEditorClicked()
 {
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
-	auto Params = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
-	FSlateApplication::Get().AddWindow(SNew(SMaterialParameterEditor).TargetMaterial(TargetMaterial).TargetInstance(TargetMaterialInstance)
-		.Parameters(Params).OnApplied(FSimpleDelegate::CreateLambda([this](){ RefreshParameters(); })));
+	// Share the main panel's session snapshot — value edits land on the VM, flushed on Apply.
+	FSlateApplication::Get().AddWindow(SNew(SMaterialParameterEditor).Session(Session).TargetInstance(TargetMaterialInstance)
+		.OnApplied(FSimpleDelegate::CreateLambda([this](){ RefreshParameters(); })));
 	return FReply::Handled();
 }
 
