@@ -37,6 +37,11 @@ public:
 	void Construct(const FArguments& InArgs);
 	virtual ~SMaterialLayoutProPanel() override;
 
+	// Poll for open material editors (standalone mode) — needed because 4.26 doesn't
+	// broadcast OnMaterialEditorOpened reliably, and content-browser clicks don't fire
+	// GEditor object-selection for assets.
+	virtual void Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime) override;
+
 private:
 	// --- Selection source (embedded vs standalone) ---
 	void BindToMaterialEditor(TWeakPtr<IMaterialEditor> InEditor);
@@ -92,4 +97,7 @@ private:
 
 	// --- Search filter ---
 	FString SearchText;
+
+	// --- Polling (standalone mode) ---
+	TOptional<double> LastPollTime;
 };

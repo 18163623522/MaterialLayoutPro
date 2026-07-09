@@ -41,6 +41,8 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "IMaterialEditor.h"
 #include "MaterialEditorModule.h"
+#include "Toolkits/AssetEditorManager.h"
+#include "Toolkits/AssetEditorToolkit.h"
 
 #if ENGINE_MAJOR_VERSION >= 5
 #include "Styling/AppStyle.h"
@@ -140,22 +142,43 @@ void SMaterialLayoutProPanel::ResolveTargetMaterial()
 		return;
 	}
 
-	// Standalone mode: read GEditor selection.
-	UMaterial* NewMat = nullptr;
-	UMaterialInstance* NewMI = nullptr;
-	if (GEditor)
+	// Standalone mode: find any currently-open material editor and bind to it.
+	UAssetEditorSubsystem* AssetEditorSS = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
+	if (AssetEditorSS)
 	{
-		USelection* Sel = GEditor->GetSelectedObjects();
-		if (Sel) for (FSelectionIterator It(*Sel); It; ++It)
+		TArray<UObject*> EditedAssets = AssetEditorSS->GetAllEditedAssets();
+		for (UObject* Asset : EditedAssets)
 		{
-			UObject* O = *It;
-			// UMaterialInstance derives from UMaterialInterface, not UMaterial — safe to check separately.
-			if (O && O->IsA<UMaterialInstance>()) { NewMI = Cast<UMaterialInstance>(O); continue; }
-			if (O && O->IsA<UMaterial>()) { NewMat = Cast<UMaterial>(O); }
+			if (!Asset) continue;
+			if (Asset->IsA<UMaterialInterface>())
+			{
+				IAssetEditorInstance* EditorInstance = AssetEditorSS->FindEditorForAsset(Asset, false);
+				if (EditorInstance)
+				{
+					// Recover a weak ptr via SharedFromThis (FAAssetEditorToolkit derives from it).
+					FAssetEditorToolkit* AsToolkit = static_cast<FAssetEditorToolkit*>(EditorInstance);
+					IMaterialEditor* MatEditor = static_cast<IMaterialEditor*>(EditorInstance);
+					OwningMaterialEditor = StaticCastSharedRef<IMaterialEditor>(AsToolkit->AsShared());
+					UMaterialInterface* MatInterface = MatEditor->GetMaterialInterface();
+					if (UMaterial* Mat = Cast<UMaterial>(MatInterface))
+					{
+						TargetMaterial = Mat;
+						TargetMaterialInstance = nullptr;
+					}
+					else if (UMaterialInstance* MI = Cast<UMaterialInstance>(MatInterface))
+					{
+						TargetMaterialInstance = MI;
+						TargetMaterial = MI->GetBaseMaterial();
+					}
+					return;
+				}
+			}
 		}
 	}
-	TargetMaterial = NewMat;
-	if (NewMI) { TargetMaterialInstance = NewMI; if (!NewMat) TargetMaterial = NewMI->GetBaseMaterial(); }
+
+	// Fallback: GEditor object selection (rarely hit for asset clicks, but covers actor selection).
+	TargetMaterial.Reset();
+	TargetMaterialInstance.Reset();
 }
 
 void SMaterialLayoutProPanel::OnSelectionChanged(UObject* Selection)
@@ -168,9 +191,53 @@ void SMaterialLayoutProPanel::OnSelectionChanged(UObject* Selection)
 	RefreshParameters();
 }
 
-// ============================================================================
-// Tree rebuild (single-column compact tree)
-// ============================================================================
+void SMaterialLayoutProPanel::Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime)
+{
+	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
+
+	// Standalone mode: poll every ~0.5s for an open material editor.
+	// (Embedded mode binds directly and doesn't need polling.)
+	if (LastPollTime.IsSet() && InCurrentTime - LastPollTime.GetValue() < 0.5)
+	{
+		return;
+	}
+	LastPollTime = InCurrentTime;
+
+	if (OwningMaterialEditor.IsValid())
+	{
+		// Already bound — check if the editor is still alive and the material is still valid.
+		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
+		if (!Editor.IsValid() || !Editor->GetMaterialInterface())
+		{
+			// Editor closed or asset swapped out from under us — re-resolve.
+			OwningMaterialEditor.Reset();
+			ResolveTargetMaterial();
+			RefreshParameters();
+		}
+		else
+		{
+			// Still valid; check if the edited material changed (user opened a different material
+			// in the same editor window — rare but possible).
+			UMaterialInterface* MatInterface = Editor->GetMaterialInterface();
+			UMaterial* CurrentMat = Cast<UMaterial>(MatInterface);
+			if (!CurrentMat) CurrentMat = Cast<UMaterialInstance>(MatInterface) ? Cast<UMaterialInstance>(MatInterface)->GetBaseMaterial() : nullptr;
+			if (CurrentMat && CurrentMat != TargetMaterial.Get())
+			{
+				RefreshParameters();
+			}
+		}
+	}
+	else
+	{
+		// Not bound yet — try to find an open material editor.
+		UMaterial* OldMat = TargetMaterial.Get();
+		ResolveTargetMaterial();
+		if (TargetMaterial.IsValid() && TargetMaterial.Get() != OldMat)
+		{
+			RefreshParameters();
+		}
+	}
+}
 
 void SMaterialLayoutProPanel::RebuildTree()
 {

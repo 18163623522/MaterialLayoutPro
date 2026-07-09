@@ -7,6 +7,7 @@
 #include "Framework/Docking/TabManager.h"
 
 class IMaterialEditor;
+class IAssetEditorInstance;
 class SDockTab;
 
 class FMaterialLayoutProModule : public IModuleInterface
@@ -35,14 +36,12 @@ private:
 
 	// --- Material Editor embedding ---
 
-	/** Called when a Material Editor opens — registers an embedded sidebar tab. */
-	void OnMaterialEditorOpened(TWeakPtr<IMaterialEditor> InMaterialEditor);
-	/** Called when a Material Instance Editor opens — registers an embedded sidebar tab. */
-	void OnMaterialInstanceEditorOpened(TWeakPtr<IMaterialEditor> InMaterialEditor);
+	/** Called when ANY asset editor opens — filters for materials and injects the sidebar. */
+	void OnAssetOpenedInEditor(UObject* Asset, IAssetEditorInstance* Instance);
 	/** Spawns the embedded sidebar tab bound to a specific material editor. */
 	TSharedRef<SDockTab> OnSpawnEmbeddedTab(const FSpawnTabArgs& Args, TWeakPtr<IMaterialEditor> InMaterialEditor);
 	/** Register the sidebar tab into a material editor's tab manager. */
-	void RegisterEmbeddedSidebar(TWeakPtr<IMaterialEditor> InMaterialEditor);
+	void RegisterEmbeddedSidebar(IMaterialEditor* InMaterialEditor);
 
 	// --- Graph context menu ---
 
@@ -53,10 +52,9 @@ private:
 	/** Handle to our registered graph menu extender (for cleanup). */
 	FDelegateHandle GraphMenuExtenderHandle;
 
+	/** Asset-editor-opened delegate handle (for cleanup on shutdown). */
+	FDelegateHandle AssetOpenedHandle;
+
 	TSharedPtr<class FUICommandList> PluginCommandList;
 	bool bIsShuttingDown;
-
-	/** Material-editor-opened delegate handles (for cleanup on shutdown). */
-	FDelegateHandle MaterialEditorOpenedHandle;
-	FDelegateHandle MaterialInstanceEditorOpenedHandle;
 };
