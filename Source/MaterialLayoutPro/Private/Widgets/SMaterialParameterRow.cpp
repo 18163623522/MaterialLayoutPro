@@ -272,17 +272,18 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 
 void SMaterialParameterRow::OnScalarDragged(float NewValue)
 {
+	// During drag: update the VM snapshot only (live preview is too expensive per frame).
 	if (VM.IsValid()) { VM->ScalarValue = NewValue; VM->bDirty = true; }
 }
 
 void SMaterialParameterRow::OnScalarCommitted(float NewValue, ETextCommit::Type CommitType)
 {
-	if (VM.IsValid()) { VM->ScalarValue = NewValue; VM->bDirty = true; }
+	if (VM.IsValid()) { VM->ScalarValue = NewValue; VM->bDirty = true; if (Session.IsValid()) Session->PushParamNow(VM); }
 }
 
 void SMaterialParameterRow::OnVectorChanged(FLinearColor NewColor)
 {
-	if (VM.IsValid()) { VM->VectorValue = NewColor; VM->bDirty = true; }
+	if (VM.IsValid()) { VM->VectorValue = NewColor; VM->bDirty = true; if (Session.IsValid()) Session->PushParamNow(VM); }
 }
 
 void SMaterialParameterRow::OnTextureChanged(UObject* NewTexture)
@@ -291,12 +292,13 @@ void SMaterialParameterRow::OnTextureChanged(UObject* NewTexture)
 	{
 		VM->TextureValue = Cast<UTexture>(NewTexture);
 		VM->bDirty = true;
+		if (Session.IsValid()) Session->PushParamNow(VM);
 	}
 }
 
 void SMaterialParameterRow::OnBoolChanged(bool bNewValue)
 {
-	if (VM.IsValid()) { VM->BoolValue = bNewValue; VM->bDirty = true; }
+	if (VM.IsValid()) { VM->BoolValue = bNewValue; VM->bDirty = true; if (Session.IsValid()) Session->PushParamNow(VM); }
 }
 
 void SMaterialParameterRow::OnGroupCommitted(const FText& NewText, ETextCommit::Type CommitType)
@@ -305,7 +307,7 @@ void SMaterialParameterRow::OnGroupCommitted(const FText& NewText, ETextCommit::
 	if (VM.IsValid())
 	{
 		FName NewGroup(*NewText.ToString());
-		if (NewGroup != VM->Group) { VM->Group = NewGroup; VM->bDirty = true; }
+		if (NewGroup != VM->Group) { VM->Group = NewGroup; VM->bDirty = true; if (Session.IsValid()) Session->PushParamNow(VM); }
 	}
 }
 
@@ -315,6 +317,7 @@ void SMaterialParameterRow::OnPriorityCommitted(int32 NewValue, ETextCommit::Typ
 	{
 		VM->SortPriority = NewValue;
 		VM->bDirty = true;
+		if (Session.IsValid()) Session->PushParamNow(VM);
 	}
 }
 

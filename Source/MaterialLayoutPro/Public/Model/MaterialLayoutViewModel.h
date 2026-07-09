@@ -117,6 +117,11 @@ public:
     /** Write all bDirty parameters back in a single FScopedTransaction. Clears bDirty. */
     void PushDirty();
 
+    /** Immediately write ONE parameter back to its expression + refresh the material.
+     *  Used for live editing: the value control commits, this pushes it straight away
+     *  so the change shows up in the viewport without an explicit "Apply" step. */
+    void PushParamNow(TSharedPtr<FMLPParamVM> Param);
+
     /** Check if any parameter has uncommitted changes. */
     bool HasDirty() const;
 

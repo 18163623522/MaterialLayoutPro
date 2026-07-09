@@ -258,6 +258,21 @@ void FMLPSession::PushDirty()
     Mat->MarkPackageDirty();
 }
 
+void FMLPSession::PushParamNow(TSharedPtr<FMLPParamVM> Param)
+{
+    UMaterial* Mat = TargetMaterial.Get();
+    if (!Mat || !Param.IsValid() || !Param->bDirty)
+    {
+        return;
+    }
+
+    // Single-param transaction + immediate write-back so the viewport updates live.
+    const FScopedTransaction Transaction(FText::FromString(TEXT("修改材质参数")));
+    Param->PushToExpression();
+    Mat->PostEditChange();
+    Mat->MarkPackageDirty();
+}
+
 bool FMLPSession::HasDirty() const
 {
     for (const TSharedPtr<FMLPGroupVM>& Group : Groups)
