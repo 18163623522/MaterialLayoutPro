@@ -33,13 +33,14 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
-#include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Styling/CoreStyle.h"
 #include "Subsystems/AssetEditorSubsystem.h"
+#include "IMaterialEditor.h"
+#include "MaterialEditorModule.h"
 
 #if ENGINE_MAJOR_VERSION >= 5
 #include "Styling/AppStyle.h"
@@ -65,63 +66,10 @@ void SMaterialLayoutProPanel::Construct(const FArguments& InArgs)
 		SNew(SBorder)
 		.BorderBackgroundColor(FMLPTheme::Background())
 		.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-		.Padding(FMargin(6.f, 4.f, 6.f, 4.f))
+		.Padding(FMargin(4.f, 4.f, 4.f, 4.f))
 		[
 			SNew(SVerticalBox)
-			+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(0,0,0,6)) [ BuildToolbar() ]
-			+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(0,0,0,4)) [ BuildStatusBar() ]
-			+ SVerticalBox::Slot().FillHeight(1.0f)
-			[
-				SAssignNew(ModeSwitcher, SWidgetSwitcher)
-				+ SWidgetSwitcher::Slot() [ BuildWideMode() ]
-				+ SWidgetSwitcher::Slot() [ BuildNarrowMode() ]
-			]
-		]
-	];
-
-	USelection::SelectionChangedEvent.AddSP(SharedThis(this), &SMaterialLayoutProPanel::OnSelectionChanged);
-	OnSelectionChanged(nullptr);
-}
-
-void SMaterialLayoutProPanel::Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime)
-{
-	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
-	UpdateLayoutMode(AllottedGeometry.GetLocalSize().X);
-}
-
-void SMaterialLayoutProPanel::UpdateLayoutMode(float Width)
-{
-	// Hysteresis: >496 → wide, <464 → narrow (prevents jitter near the threshold).
-	bool bNewMode = bIsWideMode;
-	if (!bIsWideMode && Width > 496.f) bNewMode = true;
-	else if (bIsWideMode && Width < 464.f) bNewMode = false;
-
-	if (bNewMode != bIsWideMode)
-	{
-		bIsWideMode = bNewMode;
-		if (ModeSwitcher.IsValid())
-		{
-			ModeSwitcher->SetActiveWidgetIndex(bIsWideMode ? 0 : 1);
-		}
-	}
-	CachedWidth = Width;
-}
-
-// ============================================================================
-// Layout builders
-// ============================================================================
-
-TSharedRef<SWidget> SMaterialLayoutProPanel::BuildWideMode()
-{
-	return SNew(SHorizontalBox)
-	+ SHorizontalBox::Slot().FillWidth(0.42f).Padding(FMargin(0,0,4,0))
-	[
-		SNew(SBorder)
-		.BorderBackgroundColor(FMLPTheme::SurfaceAlt())
-		.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-		.Padding(FMLPTheme::PadSM())
-		[
-			SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(0,0,0,4)) [ BuildToolbar() ]
 			+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(0,0,0,4))
 			[
 				SAssignNew(SearchBox, SEditableTextBox)
@@ -129,56 +77,109 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildWideMode()
 				.Font(FMLPTheme::FontSmall())
 				.OnTextChanged(this, &SMaterialLayoutProPanel::OnSearchChanged)
 			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(0,0,0,4)) [ BuildStatusBar() ]
 			+ SVerticalBox::Slot().FillHeight(1.0f)
 			[
 				SNew(SScrollBox)
-				+ SScrollBox::Slot() [ SAssignNew(LeftTreeContainer, SVerticalBox) ]
+				+ SScrollBox::Slot() [ SAssignNew(TreeContainer, SVerticalBox) ]
 			]
 		]
-	]
-	+ SHorizontalBox::Slot().FillWidth(0.58f)
-	[
-		SNew(SBorder)
-		.BorderBackgroundColor(FMLPTheme::Surface())
-		.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-		.Padding(FMLPTheme::PadMD())
-		[
-			SAssignNew(RightDetailContainer, SVerticalBox)
-		]
 	];
+
+	// Bind to a material editor (embedded mode) or GEditor selection (standalone mode).
+	if (InArgs._OwningMaterialEditor.IsValid())
+	{
+		BindToMaterialEditor(InArgs._OwningMaterialEditor);
+	}
+	else
+	{
+		USelection::SelectionChangedEvent.AddSP(SharedThis(this), &SMaterialLayoutProPanel::OnSelectionChanged);
+		ResolveTargetMaterial();
+		RefreshParameters();
+	}
 }
 
-TSharedRef<SWidget> SMaterialLayoutProPanel::BuildNarrowMode()
+// ============================================================================
+// Data source resolution
+// ============================================================================
+
+void SMaterialLayoutProPanel::BindToMaterialEditor(TWeakPtr<IMaterialEditor> InEditor)
 {
-	return SNew(SBorder)
-	.BorderBackgroundColor(FMLPTheme::SurfaceAlt())
-	.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-	.Padding(FMLPTheme::PadSM())
-	[
-		SNew(SVerticalBox)
-		+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(0,0,0,4))
-		[
-			SAssignNew(SearchBox, SEditableTextBox)
-			.HintText(LOCTEXT("SearchHintN", "搜索参数..."))
-			.Font(FMLPTheme::FontSmall())
-			.OnTextChanged(this, &SMaterialLayoutProPanel::OnSearchChanged)
-		]
-		+ SVerticalBox::Slot().FillHeight(1.0f)
-		[
-			SNew(SScrollBox)
-			+ SScrollBox::Slot() [ SAssignNew(NarrowListContainer, SVerticalBox) ]
-		]
-	];
+	OwningMaterialEditor = InEditor;
+	// Embedded mode: re-resolve whenever this editor's asset changes (handled via Tick-like
+	// polling in ResolveTargetMaterial; material editors don't broadcast asset swap cleanly
+	// in 4.26 without hooking private delegates). For now we resolve on construct + refresh.
+	ResolveTargetMaterial();
+	RefreshParameters();
 }
 
-void SMaterialLayoutProPanel::RebuildLeftTree()
+void SMaterialLayoutProPanel::ResolveTargetMaterial()
 {
-	if (!LeftTreeContainer.IsValid()) return;
-	LeftTreeContainer->ClearChildren();
+	if (OwningMaterialEditor.IsValid())
+	{
+		// Embedded mode: ask the editor for the material it's editing.
+		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
+		if (Editor.IsValid())
+		{
+			UMaterialInterface* MatInterface = Editor->GetMaterialInterface();
+			if (UMaterial* Mat = Cast<UMaterial>(MatInterface))
+			{
+				TargetMaterial = Mat;
+				TargetMaterialInstance = nullptr;
+				return;
+			}
+			if (UMaterialInstance* MI = Cast<UMaterialInstance>(MatInterface))
+			{
+				TargetMaterialInstance = MI;
+				TargetMaterial = MI ? MI->GetBaseMaterial() : nullptr;
+				return;
+			}
+		}
+		TargetMaterial.Reset();
+		TargetMaterialInstance.Reset();
+		return;
+	}
+
+	// Standalone mode: read GEditor selection.
+	UMaterial* NewMat = nullptr;
+	UMaterialInstance* NewMI = nullptr;
+	if (GEditor)
+	{
+		USelection* Sel = GEditor->GetSelectedObjects();
+		if (Sel) for (FSelectionIterator It(*Sel); It; ++It)
+		{
+			UObject* O = *It;
+			// UMaterialInstance derives from UMaterialInterface, not UMaterial — safe to check separately.
+			if (O && O->IsA<UMaterialInstance>()) { NewMI = Cast<UMaterialInstance>(O); continue; }
+			if (O && O->IsA<UMaterial>()) { NewMat = Cast<UMaterial>(O); }
+		}
+	}
+	TargetMaterial = NewMat;
+	if (NewMI) { TargetMaterialInstance = NewMI; if (!NewMat) TargetMaterial = NewMI->GetBaseMaterial(); }
+}
+
+void SMaterialLayoutProPanel::OnSelectionChanged(UObject* Selection)
+{
+	if (OwningMaterialEditor.IsValid()) return; // embedded mode ignores content-browser selection
+	UMaterial* OldMat = TargetMaterial.Get();
+	UMaterialInstance* OldMI = TargetMaterialInstance.Get();
+	ResolveTargetMaterial();
+	if (TargetMaterial.Get() == OldMat && TargetMaterialInstance.Get() == OldMI) return;
+	RefreshParameters();
+}
+
+// ============================================================================
+// Tree rebuild (single-column compact tree)
+// ============================================================================
+
+void SMaterialLayoutProPanel::RebuildTree()
+{
+	if (!TreeContainer.IsValid()) return;
+	TreeContainer->ClearChildren();
 
 	if (!Session.IsValid() || Session->Groups.Num() == 0)
 	{
-		LeftTreeContainer->AddSlot()
+		TreeContainer->AddSlot()
 		[
 			SNew(STextBlock)
 			.Text(LOCTEXT("NoParams", "未找到参数"))
@@ -192,39 +193,34 @@ void SMaterialLayoutProPanel::RebuildLeftTree()
 	{
 		if (!Group.IsValid()) continue;
 
-		// Count visible params under this group.
 		int32 VisibleCount = 0;
 		for (const TSharedPtr<FMLPParamVM>& Param : Group->Parameters)
 		{
 			if (PassesFilter(Param)) ++VisibleCount;
 		}
-		if (VisibleCount == 0) continue; // hide empty groups when filtering
+		if (VisibleCount == 0) continue;
 
 		// Group header.
-		LeftTreeContainer->AddSlot().AutoHeight()
+		TreeContainer->AddSlot().AutoHeight().Padding(FMargin(0.f, 4.f, 0.f, 1.f))
 		[
 			SNew(SBorder)
-			.BorderBackgroundColor(FLinearColor(FMLPTheme::Accent().R, FMLPTheme::Accent().G, FMLPTheme::Accent().B, 0.15f))
+			.BorderBackgroundColor(FLinearColor(FMLPTheme::Accent().R, FMLPTheme::Accent().G, FMLPTheme::Accent().B, 0.18f))
 			.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
 			.Padding(FMargin(6.f, 3.f))
 			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-				[
-					SNew(STextBlock)
-					.Text(FText::FromString(FString::Printf(TEXT("▼ %s (%d)"), *Group->Name.ToString(), VisibleCount)))
-					.Font(FMLPTheme::FontHeading())
-					.ColorAndOpacity(FMLPTheme::Foreground())
-				]
+				SNew(STextBlock)
+				.Text(FText::FromString(FString::Printf(TEXT("▼ %s (%d)"), *Group->Name.ToString(), VisibleCount)))
+				.Font(FMLPTheme::FontHeading())
+				.ColorAndOpacity(FMLPTheme::Foreground())
 			]
 		];
 
-		// Parameter rows.
+		// Inline parameter rows (detail mode = show group + priority editors).
 		for (const TSharedPtr<FMLPParamVM>& Param : Group->Parameters)
 		{
 			if (!PassesFilter(Param)) continue;
 			const bool bSel = (SelectedParam == Param);
-			LeftTreeContainer->AddSlot().AutoHeight().Padding(FMargin(8.f, 0.f, 0.f, 0.f))
+			TreeContainer->AddSlot().AutoHeight().Padding(FMargin(0.f, 0.f, 0.f, 0.f))
 			[
 				SNew(SButton)
 				.ButtonStyle(MLP_STYLE::Get(), "FlatButton")
@@ -236,128 +232,11 @@ void SMaterialLayoutProPanel::RebuildLeftTree()
 					.ParamVM(Param)
 					.Session(Session)
 					.bSelected(bSel)
+					.bDetailMode(true)
 				]
 			];
 		}
 	}
-}
-
-void SMaterialLayoutProPanel::RebuildNarrowList()
-{
-	if (!NarrowListContainer.IsValid()) return;
-	NarrowListContainer->ClearChildren();
-
-	if (!Session.IsValid() || Session->Groups.Num() == 0)
-	{
-		NarrowListContainer->AddSlot()
-		[
-			SNew(STextBlock)
-			.Text(LOCTEXT("NoParamsN", "未找到参数"))
-			.ColorAndOpacity(FMLPTheme::Muted())
-			.Font(FMLPTheme::FontBody())
-		];
-		return;
-	}
-
-	for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
-	{
-		if (!Group.IsValid()) continue;
-		int32 VisibleCount = 0;
-		for (const TSharedPtr<FMLPParamVM>& Param : Group->Parameters)
-		{
-			if (PassesFilter(Param)) ++VisibleCount;
-		}
-		if (VisibleCount == 0) continue;
-
-		NarrowListContainer->AddSlot().AutoHeight()
-		[
-			SNew(SBorder)
-			.BorderBackgroundColor(FLinearColor(FMLPTheme::Accent().R, FMLPTheme::Accent().G, FMLPTheme::Accent().B, 0.15f))
-			.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-			.Padding(FMargin(6.f, 3.f))
-			[
-				SNew(STextBlock)
-				.Text(FText::FromString(FString::Printf(TEXT("▼ %s (%d)"), *Group->Name.ToString(), VisibleCount)))
-				.Font(FMLPTheme::FontHeading())
-				.ColorAndOpacity(FMLPTheme::Foreground())
-			]
-		];
-
-		// In narrow mode the row shows its value editor inline (no separate detail pane).
-		for (const TSharedPtr<FMLPParamVM>& Param : Group->Parameters)
-		{
-			if (!PassesFilter(Param)) continue;
-			NarrowListContainer->AddSlot().AutoHeight().Padding(FMargin(4.f, 0.f, 0.f, 0.f))
-			[
-				SNew(SMaterialParameterRow)
-				.ParamVM(Param)
-				.Session(Session)
-				.bSelected(false)
-				.bDetailMode(true)
-			];
-		}
-	}
-}
-
-void SMaterialLayoutProPanel::RebuildRightDetail()
-{
-	if (!RightDetailContainer.IsValid()) return;
-	RightDetailContainer->ClearChildren();
-
-	if (!SelectedParam.IsValid())
-	{
-		RightDetailContainer->AddSlot().Padding(FMLPTheme::PadMD())
-		[
-			SNew(STextBlock)
-			.Text(LOCTEXT("SelectPrompt", "从左侧选择一个参数查看详情"))
-			.ColorAndOpacity(FMLPTheme::Muted())
-			.Font(FMLPTheme::FontBody())
-		];
-		return;
-	}
-
-	// Title row: type pill + name + status badge.
-	RightDetailContainer->AddSlot().AutoHeight().Padding(FMargin(0,0,0,8))
-	[
-		SNew(SHorizontalBox)
-		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-		[
-			FMLPTheme::MakeTypePill(
-				FMLPTheme::GetTypeAbbrForType(SelectedParam->Type),
-				FMLPTheme::GetTypeColorForType(SelectedParam->Type))
-		]
-		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMLPTheme::PadSM())
-		[
-			SNew(STextBlock)
-			.Text(FText::FromName(SelectedParam->Name))
-			.Font(FMLPTheme::FontTitle())
-			.ColorAndOpacity(FMLPTheme::Foreground())
-		]
-		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMLPTheme::PadSM())
-		[
-			SNew(SBorder)
-			.BorderBackgroundColor(SelectedParam->GetUsageBgColor())
-			.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-			.Padding(FMargin(4.f, 1.f))
-			.HAlign(HAlign_Center)
-			[
-				SNew(STextBlock)
-				.Text(SelectedParam->GetUsageLabel())
-				.Font(FMLPTheme::FontBadge())
-				.ColorAndOpacity(SelectedParam->GetUsageColor())
-			]
-		]
-	];
-
-	// Detail editor (group + priority editors visible).
-	RightDetailContainer->AddSlot().FillHeight(1.0f)
-	[
-		SNew(SMaterialParameterRow)
-		.ParamVM(SelectedParam)
-		.Session(Session)
-		.bSelected(true)
-		.bDetailMode(true)
-	];
 }
 
 // ============================================================================
@@ -367,15 +246,13 @@ void SMaterialLayoutProPanel::RebuildRightDetail()
 void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param)
 {
 	SelectedParam = Param;
-	RebuildLeftTree();
-	RebuildRightDetail();
+	RebuildTree();
 }
 
 void SMaterialLayoutProPanel::OnSearchChanged(const FText& NewText)
 {
 	SearchText = NewText.ToString();
-	RebuildLeftTree();
-	RebuildNarrowList();
+	RebuildTree();
 }
 
 bool SMaterialLayoutProPanel::PassesFilter(const TSharedPtr<FMLPParamVM>& Param) const
@@ -393,6 +270,12 @@ void SMaterialLayoutProPanel::RefreshParameters()
 {
 	if (!Session.IsValid()) return;
 
+	// In embedded mode, re-resolve the target (editor may have switched assets).
+	if (OwningMaterialEditor.IsValid())
+	{
+		ResolveTargetMaterial();
+	}
+
 	if (TargetMaterial.IsValid())
 	{
 		Session->TargetMaterial = TargetMaterial;
@@ -403,28 +286,7 @@ void SMaterialLayoutProPanel::RefreshParameters()
 		Session->Groups.Reset();
 		SelectedParam.Reset();
 	}
-	RebuildLeftTree();
-	RebuildNarrowList();
-	RebuildRightDetail();
-}
-
-void SMaterialLayoutProPanel::OnSelectionChanged(UObject* Selection)
-{
-	UMaterial* NewMat = nullptr;
-	UMaterialInstance* NewMI = nullptr;
-	if (GEditor)
-	{
-		USelection* Sel = GEditor->GetSelectedObjects();
-		if (Sel) for (FSelectionIterator It(*Sel); It; ++It)
-		{
-			UObject* O = *It;
-			if (!NewMat && O && O->IsA<UMaterial>()) { NewMat = Cast<UMaterial>(O); break; }
-			if (!NewMI && O && O->IsA<UMaterialInstance>()) NewMI = Cast<UMaterialInstance>(O);
-		}
-	}
-	if (NewMat == TargetMaterial.Get() && NewMI == TargetMaterialInstance.Get()) return;
-	TargetMaterial = NewMat; TargetMaterialInstance = NewMI;
-	RefreshParameters();
+	RebuildTree();
 }
 
 // ============================================================================
@@ -434,57 +296,77 @@ void SMaterialLayoutProPanel::OnSelectionChanged(UObject* Selection)
 TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 {
 	return SNew(SHorizontalBox)
-		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-		[ SNew(STextBlock).Text(LOCTEXT("TL","目标：")).Font(FMLPTheme::FontBody()).ColorAndOpacity(FMLPTheme::Muted()) ]
-		+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center).Padding(FMLPTheme::PadSM())
-		[ SNew(STextBlock).Text(this,&SMaterialLayoutProPanel::GetTargetMaterialName).Font(FMLPTheme::FontHeading()).ColorAndOpacity(FMLPTheme::Foreground()) ]
+		+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+		[
+			SNew(STextBlock)
+			.Text(this, &SMaterialLayoutProPanel::GetTargetMaterialName)
+			.Font(FMLPTheme::FontHeading())
+			.ColorAndOpacity(FMLPTheme::Foreground())
+		]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(FMLPTheme::PadH())
-		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("R","刷新")).ToolTipText(LOCTEXT("RT","重新扫描参数")).OnClicked(this,&SMaterialLayoutProPanel::OnRefreshClicked) ]
-		+ SHorizontalBox::Slot().AutoWidth().Padding(FMLPTheme::PadH())
-		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("S","定位")).ToolTipText(LOCTEXT("ST","在内容浏览器中定位材质")).OnClicked(this,&SMaterialLayoutProPanel::OnSelectMaterialClicked) ]
-		+ SHorizontalBox::Slot().AutoWidth().Padding(FMLPTheme::PadH())
-		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("OE","在编辑器中打开")).ToolTipText(LOCTEXT("OET","在材质编辑器中打开此材质")).OnClicked(this,&SMaterialLayoutProPanel::OnOpenMaterialEditorClicked) ]
-		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(4,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
-		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMLPTheme::PadH())
-		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("AG","自动分组")).ToolTipText(LOCTEXT("AGT","按名称前缀自动分组参数")).OnClicked(this,&SMaterialLayoutProPanel::OnAutoGroupClicked) ]
-		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMLPTheme::PadH())
-		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("GBC","按注释分组")).ToolTipText(LOCTEXT("GBCT","按包含参数的注释框对参数进行分组")).OnClicked(this,&SMaterialLayoutProPanel::OnGroupByCommentClicked) ]
-		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(4,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("R","刷新")).ToolTipText(LOCTEXT("RT","重新扫描参数")).OnClicked(this,&SMaterialLayoutProPanel::OnRefreshClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		+ SHorizontalBox::Slot().AutoWidth()
-		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("AU","归档未使用")).ToolTipText(LOCTEXT("AUT","将未使用的参数移至已废弃分组")).OnClicked(this,&SMaterialLayoutProPanel::OnArchiveUnusedClicked) ]
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("AG","自动分组")).ToolTipText(LOCTEXT("AGT","按名称前缀自动分组")).OnClicked(this,&SMaterialLayoutProPanel::OnAutoGroupClicked)
+		]
 		+ SHorizontalBox::Slot().AutoWidth()
-		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton")
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("GBC","按注释")).ToolTipText(LOCTEXT("GBCT","按注释框分组")).OnClicked(this,&SMaterialLayoutProPanel::OnGroupByCommentClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("AU","归档未用")).ToolTipText(LOCTEXT("AUT","将未使用的参数移至已废弃分组")).OnClicked(this,&SMaterialLayoutProPanel::OnArchiveUnusedClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton")
 			.ButtonColorAndOpacity(FMLPTheme::ButtonDanger()).ForegroundColor(FMLPTheme::ButtonTextOnColor())
 			.ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("DU","删除未使用")).ToolTipText(LOCTEXT("DUT","删除未使用的参数")).OnClicked(this,&SMaterialLayoutProPanel::OnDeleteUnusedClicked) ]
+			.Text(LOCTEXT("DU","删除未用")).ToolTipText(LOCTEXT("DUT","删除未使用的参数")).OnClicked(this,&SMaterialLayoutProPanel::OnDeleteUnusedClicked)
+		]
 		+ SHorizontalBox::Slot().AutoWidth()
-		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("BR","批量重命名")).ToolTipText(LOCTEXT("BRT","批量重命名选中的参数")).OnClicked(this,&SMaterialLayoutProPanel::OnBulkRenameClicked) ]
-		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(4,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("BR","重命名")).ToolTipText(LOCTEXT("BRT","批量重命名")).OnClicked(this,&SMaterialLayoutProPanel::OnBulkRenameClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		+ SHorizontalBox::Slot().AutoWidth()
-		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("EX","导出")).ToolTipText(LOCTEXT("EXT","将参数列表导出为 CSV")).OnClicked(this,&SMaterialLayoutProPanel::OnExportClicked) ]
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("SW","排序")).ToolTipText(LOCTEXT("SWT","排序工作台")).OnClicked(this,&SMaterialLayoutProPanel::OnSortWorkbenchClicked)
+		]
 		+ SHorizontalBox::Slot().AutoWidth()
-		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("IM","导入")).ToolTipText(LOCTEXT("IMT","从 CSV 文件导入分组/排序优先级回材质")).OnClicked(this,&SMaterialLayoutProPanel::OnImportClicked) ]
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("PE","编辑器")).ToolTipText(LOCTEXT("PET","参数编辑器")).OnClicked(this,&SMaterialLayoutProPanel::OnParameterEditorClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		+ SHorizontalBox::Slot().AutoWidth()
-		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("SW","排序工作台")).ToolTipText(LOCTEXT("SWT","打开独立窗口重新排列分组和排序优先级")).OnClicked(this,&SMaterialLayoutProPanel::OnSortWorkbenchClicked) ]
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("EX","导出")).ToolTipText(LOCTEXT("EXT","导出 CSV")).OnClicked(this,&SMaterialLayoutProPanel::OnExportClicked)
+		]
 		+ SHorizontalBox::Slot().AutoWidth()
-		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("PE","参数编辑器")).ToolTipText(LOCTEXT("PET","打开 Houdini 风格的参数编辑器")).OnClicked(this,&SMaterialLayoutProPanel::OnParameterEditorClicked) ]
-		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(4,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("IM","导入")).ToolTipText(LOCTEXT("IMT","导入 CSV")).OnClicked(this,&SMaterialLayoutProPanel::OnImportClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		+ SHorizontalBox::Slot().AutoWidth()
-		[ SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton")
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton")
 			.ButtonColorAndOpacity(FMLPTheme::ButtonPrimary()).ForegroundColor(FMLPTheme::ButtonTextOnColor())
 			.ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("Apply","应用更改")).ToolTipText(LOCTEXT("ApplyT","将未提交的参数改动写回材质")).OnClicked(this,&SMaterialLayoutProPanel::OnApplyChangesClicked) ]
+			.Text(LOCTEXT("Apply","应用")).ToolTipText(LOCTEXT("ApplyT","将改动写回材质")).OnClicked(this,&SMaterialLayoutProPanel::OnApplyChangesClicked)
+		]
 		;
 }
 
@@ -493,7 +375,7 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildStatusBar()
 	return SNew(SBorder)
 		.BorderBackgroundColor(FLinearColor(FMLPTheme::SurfaceAlt().R,FMLPTheme::SurfaceAlt().G,FMLPTheme::SurfaceAlt().B,0.7f))
 		.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-		.Padding(FMargin(8,3))
+		.Padding(FMargin(6,3))
 		[
 			SNew(SHorizontalBox)+SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
 			[ SNew(STextBlock).Text(this,&SMaterialLayoutProPanel::GetStatusText).Font(FMLPTheme::FontSmall()).ColorAndOpacity(FMLPTheme::Muted()) ]
@@ -508,11 +390,7 @@ FReply SMaterialLayoutProPanel::OnRefreshClicked() { RefreshParameters(); return
 
 FReply SMaterialLayoutProPanel::OnApplyChangesClicked()
 {
-	if (Session.IsValid())
-	{
-		Session->PushDirty();
-		RefreshParameters();
-	}
+	if (Session.IsValid()) { Session->PushDirty(); RefreshParameters(); }
 	return FReply::Handled();
 }
 
@@ -669,7 +547,6 @@ FReply SMaterialLayoutProPanel::OnSortWorkbenchClicked()
 FReply SMaterialLayoutProPanel::OnParameterEditorClicked()
 {
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
-	// Share the main panel's session snapshot — value edits land on the VM, flushed on Apply.
 	FSlateApplication::Get().AddWindow(SNew(SMaterialParameterEditor).Session(Session).TargetInstance(TargetMaterialInstance)
 		.OnApplied(FSimpleDelegate::CreateLambda([this](){ RefreshParameters(); })));
 	return FReply::Handled();
@@ -683,20 +560,30 @@ FText SMaterialLayoutProPanel::GetTargetMaterialName() const
 {
 	if (TargetMaterial.IsValid()) return FText::Format(LOCTEXT("TM","{0}"), FText::FromString(TargetMaterial->GetName()));
 	if (TargetMaterialInstance.IsValid()) return FText::Format(LOCTEXT("TMI","{0}（实例）"), FText::FromString(TargetMaterialInstance->GetName()));
-	return LOCTEXT("NT","选择一个材质");
+	return LOCTEXT("NT","未绑定材质");
 }
 
 FText SMaterialLayoutProPanel::GetStatusText() const
 {
 	if (!TargetMaterial.IsValid() && !TargetMaterialInstance.IsValid()) return LOCTEXT("NS","未选择材质");
-	if (!Session.IsValid() || Session->Groups.Num() == 0) return LOCTEXT("NP","未找到参数");
+	if (!Session.IsValid() || Session->Groups.Num() == 0)
+	{
+		// Diagnostic: distinguish scanner-found-0 from VM-built-0.
+		int32 Scanned = 0;
+		if (TargetMaterial.IsValid())
+		{
+			TArray<TSharedPtr<FMLPParameterInfo>> Params = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
+			Scanned = Params.Num();
+		}
+		return FText::FromString(FString::Printf(TEXT("[diag] 扫描=%d 组=%d 锁=%d"), Scanned, Session.IsValid() ? Session->Groups.Num() : -1, Session.IsValid() ? Session->InteractingCount : -1));
+	}
 
 	int32 Total = 0;
 	for (const auto& G : Session->Groups) if (G.IsValid()) Total += G->Parameters.Num();
 	if (Total == 0) return LOCTEXT("NP2","未找到参数");
 
-	FString Base = FString::Printf(TEXT("%d 个参数 | %d 个分组"), Total, Session->Groups.Num());
-	if (Session->HasDirty()) Base += TEXT("  |  ● 有未提交改动");
+	FString Base = FString::Printf(TEXT("%d 参数 | %d 分组"), Total, Session->Groups.Num());
+	if (Session->HasDirty()) Base += TEXT("  ● 未提交");
 	return FText::FromString(Base);
 }
 

@@ -148,6 +148,7 @@ void FMLPSession::PullAll()
     // Interaction lock: if a control is being edited, defer the refresh.
     if (InteractingCount > 0)
     {
+        UE_LOG(LogTemp, Warning, TEXT("[MLP] PullAll: DEFERRED (InteractingCount=%d)"), InteractingCount);
         bPendingRefresh = true;
         return;
     }
@@ -157,12 +158,14 @@ void FMLPSession::PullAll()
     UMaterial* Mat = TargetMaterial.Get();
     if (!Mat)
     {
+        UE_LOG(LogTemp, Warning, TEXT("[MLP] PullAll: no TargetMaterial"));
         return;
     }
 
     // Scan the material (reuse existing scanner — it's stable and tested).
     TArray<TSharedPtr<FMLPParameterInfo>> Params = FMaterialParameterScanner::ScanMaterial(Mat);
     FMaterialParameterUsageAnalyzer::Analyze(Mat, Params);
+    UE_LOG(LogTemp, Warning, TEXT("[MLP] PullAll: Mat=%s, scanned %d params"), *Mat->GetName(), Params.Num());
 
     // Group parameters by their Group name.
     TMap<FName, int32> GroupIndexMap;

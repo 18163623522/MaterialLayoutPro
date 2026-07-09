@@ -21,10 +21,13 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "ScopedTransaction.h"
+#include "IMaterialEditor.h"
+#include "MaterialEditorModule.h"
 
 #define LOCTEXT_NAMESPACE "FMaterialLayoutProModule"
 
 static const FName MaterialLayoutProTabName(TEXT("MaterialLayoutPro"));
+const FName FMaterialLayoutProModule::EmbeddedTabId(TEXT("MaterialLayoutProSidebar"));
 
 void FMaterialLayoutProModule::StartupModule()
 {
@@ -38,9 +41,6 @@ void FMaterialLayoutProModule::StartupModule()
 
 	RegisterTabSpawners();
 
-	// Register menus immediately if ToolMenus is already available, otherwise
-	// wait for the startup callback. Some loading configurations fire the startup
-	// event before PostEngineInit editor modules are initialized.
 	if (UToolMenus* ToolMenus = UToolMenus::TryGet())
 	{
 		RegisterMenus();
@@ -51,7 +51,12 @@ void FMaterialLayoutProModule::StartupModule()
 			FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FMaterialLayoutProModule::RegisterMenus));
 	}
 
-	// Register a graph context-menu extender to add "Sync Comment to Group" on material comments.
+	// Hook into Material Editor openings to inject the embedded sidebar.
+	IMaterialEditorModule& MaterialEditorModule = IMaterialEditorModule::Get();
+	MaterialEditorOpenedHandle = MaterialEditorModule.OnMaterialEditorOpened().AddRaw(this, &FMaterialLayoutProModule::OnMaterialEditorOpened);
+	MaterialInstanceEditorOpenedHandle = MaterialEditorModule.OnMaterialInstanceEditorOpened().AddRaw(this, &FMaterialLayoutProModule::OnMaterialInstanceEditorOpened);
+
+	// Graph context-menu extender for "Sync Comment to Group".
 	FGraphEditorModule& GraphEditorModule = FModuleManager::LoadModuleChecked<FGraphEditorModule>("GraphEditor");
 	GraphEditorModule.GetAllGraphEditorContextMenuExtender().Add(
 		FGraphEditorModule::FGraphEditorMenuExtender_SelectedNode::CreateRaw(this, &FMaterialLayoutProModule::GetGraphContextMenuExtender));
@@ -61,9 +66,13 @@ void FMaterialLayoutProModule::ShutdownModule()
 {
 	bIsShuttingDown = true;
 
-	// Note: the graph menu extender is not unregistered here because 4.26's delegate
-	// array doesn't expose a stable handle-based removal. Plugin modules unload at the
-	// same time the editor shuts down, so the extender array is torn down with it.
+	if (FModuleManager::Get().IsModuleLoaded("MaterialEditor"))
+	{
+		IMaterialEditorModule& MaterialEditorModule = IMaterialEditorModule::Get();
+		if (MaterialEditorOpenedHandle.IsValid()) MaterialEditorModule.OnMaterialEditorOpened().Remove(MaterialEditorOpenedHandle);
+		if (MaterialInstanceEditorOpenedHandle.IsValid()) MaterialEditorModule.OnMaterialInstanceEditorOpened().Remove(MaterialInstanceEditorOpenedHandle);
+	}
+
 	UToolMenus::UnRegisterStartupCallback(this);
 	if (UToolMenus* TM = UToolMenus::TryGet())
 	{
@@ -71,7 +80,7 @@ void FMaterialLayoutProModule::ShutdownModule()
 	}
 
 	UnregisterTabSpawners();
-	UnregisterCommands();
+	FMaterialLayoutProCommands::Unregister();
 	UnregisterStyle();
 }
 
@@ -114,6 +123,7 @@ void FMaterialLayoutProModule::BindCommands()
 
 void FMaterialLayoutProModule::RegisterTabSpawners()
 {
+	// Standalone Nomad tab (fallback entry; not the primary UX in embedded mode).
 	FGlobalTabmanager::Get()->RegisterNomadTabSpawner(
 		MaterialLayoutProTabName,
 		FOnSpawnTab::CreateLambda([](const FSpawnTabArgs&) -> TSharedRef<SDockTab>
@@ -153,24 +163,71 @@ void FMaterialLayoutProModule::RegisterMenus()
 			LOCTEXT("OpenPanelMenuTip", "打开材质参数管理器面板。"),
 			FSlateIcon(FMaterialLayoutProStyle::GetStyleSetName(), "MaterialLayoutPro.OpenPanel"));
 	}
-
-	UToolMenu* ToolBarMenu = UToolMenus::Get()->ExtendMenu("LevelEditor.LevelEditorToolBar.PlayToolBar");
-	if (ToolBarMenu)
-	{
-		FToolMenuSection& ToolBarSection = ToolBarMenu->FindOrAddSection("MaterialLayoutPro");
-		ToolBarSection.AddEntry(FToolMenuEntry::InitToolBarButton(
-			FMaterialLayoutProCommands::Get().OpenPanel,
-			LOCTEXT("ToolbarOpenButton", "MLP"),
-			LOCTEXT("ToolbarOpenButtonTip", "打开材质布局 Pro 面板"),
-			FSlateIcon(FMaterialLayoutProStyle::GetStyleSetName(), "MaterialLayoutPro.OpenPanel")));
-	}
 }
+
+// ============================================================================
+// Material Editor embedding
+// ============================================================================
+
+void FMaterialLayoutProModule::OnMaterialEditorOpened(TWeakPtr<IMaterialEditor> InMaterialEditor)
+{
+	RegisterEmbeddedSidebar(InMaterialEditor);
+}
+
+void FMaterialLayoutProModule::OnMaterialInstanceEditorOpened(TWeakPtr<IMaterialEditor> InMaterialEditor)
+{
+	RegisterEmbeddedSidebar(InMaterialEditor);
+}
+
+void FMaterialLayoutProModule::RegisterEmbeddedSidebar(TWeakPtr<IMaterialEditor> InMaterialEditor)
+{
+	TSharedPtr<IMaterialEditor> Editor = InMaterialEditor.Pin();
+	if (!Editor.IsValid())
+	{
+		return;
+	}
+
+	// IMaterialEditor derives from FAssetEditorToolkit which owns a TabManager.
+	TSharedPtr<FTabManager> TabManager = Editor->GetTabManager();
+	if (!TabManager.IsValid())
+	{
+		return;
+	}
+
+	// Register a sidebar tab spawner on this editor's tab manager (idempotent —
+	// registering an existing tab id is a no-op in 4.26).
+	const FText TabLabel = LOCTEXT("SidebarTabLabel", "参数布局");
+	TabManager->RegisterTabSpawner(EmbeddedTabId, FOnSpawnTab::CreateRaw(this, &FMaterialLayoutProModule::OnSpawnEmbeddedTab, InMaterialEditor))
+		.SetDisplayName(TabLabel)
+		.SetMenuType(ETabSpawnerMenuType::Hidden);
+
+	// Invoke the tab so it opens automatically beside the graph canvas.
+	TabManager->TryInvokeTab(EmbeddedTabId);
+}
+
+TSharedRef<SDockTab> FMaterialLayoutProModule::OnSpawnEmbeddedTab(const FSpawnTabArgs& Args, TWeakPtr<IMaterialEditor> InMaterialEditor)
+{
+	TSharedRef<SDockTab> Tab = SNew(SDockTab)
+		.TabRole(ETabRole::PanelTab)
+		.Label(LOCTEXT("SidebarTabTitle", "参数布局"));
+
+	Tab->SetContent
+	(
+		SNew(SMaterialLayoutProPanel)
+		.OwningMaterialEditor(InMaterialEditor)
+	);
+
+	return Tab;
+}
+
+// ============================================================================
+// Graph context menu
+// ============================================================================
 
 TSharedRef<FExtender> FMaterialLayoutProModule::GetGraphContextMenuExtender(const TSharedRef<FUICommandList> InCommandList, const UEdGraph* InGraph, const UEdGraphNode* InNode, const UEdGraphPin* InPin, bool bIsDebugging)
 {
 	TSharedRef<FExtender> Extender = MakeShareable(new FExtender);
 
-	// Only add the action when the right-clicked node is a material comment box.
 	if (InNode && InNode->IsA<UEdGraphNode_Comment>())
 	{
 		Extender->AddMenuExtension(
@@ -192,24 +249,15 @@ void FMaterialLayoutProModule::OnSyncCommentToGroup(FMenuBuilder& MenuBuilder, c
 		FExecuteAction::CreateLambda([InGraph, InNode]()
 		{
 			const UEdGraphNode_Comment* CommentNode = Cast<UEdGraphNode_Comment>(InNode);
-			if (!CommentNode || !InGraph)
-			{
-				return;
-			}
+			if (!CommentNode || !InGraph) return;
 
 			const UMaterialGraph* MaterialGraph = Cast<UMaterialGraph>(InGraph);
-			if (!MaterialGraph || !MaterialGraph->Material)
-			{
-				return;
-			}
+			if (!MaterialGraph || !MaterialGraph->Material) return;
 			UMaterial* Material = MaterialGraph->Material;
 
 			FString GroupName = CommentNode->NodeComment;
 			GroupName.TrimStartAndEndInline();
-			if (GroupName.IsEmpty())
-			{
-				return;
-			}
+			if (GroupName.IsEmpty()) return;
 			GroupName.ReplaceInline(TEXT(" "), TEXT("_"));
 			GroupName.ReplaceInline(TEXT("-"), TEXT("_"));
 			const FName GroupNameFName(*GroupName);
@@ -226,15 +274,9 @@ void FMaterialLayoutProModule::OnSyncCommentToGroup(FMenuBuilder& MenuBuilder, c
 			for (UMaterialExpression* Expression : Material->Expressions)
 #endif
 			{
-				if (!Expression)
-				{
-					continue;
-				}
+				if (!Expression) continue;
 				UMaterialExpressionParameter* ParamExpr = Cast<UMaterialExpressionParameter>(Expression);
-				if (!ParamExpr)
-				{
-					continue;
-				}
+				if (!ParamExpr) continue;
 				const FVector2D Pos(Expression->MaterialExpressionEditorX, Expression->MaterialExpressionEditorY);
 				if (Pos.X >= CommentMin.X && Pos.X <= CommentMax.X && Pos.Y >= CommentMin.Y && Pos.Y <= CommentMax.Y)
 				{

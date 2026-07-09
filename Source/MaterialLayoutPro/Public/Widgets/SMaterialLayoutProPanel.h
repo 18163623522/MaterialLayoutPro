@@ -6,51 +6,56 @@
 class UMaterial;
 class UMaterialInstance;
 class UMaterialExpressionParameter;
+class IMaterialEditor;
 class FMLPSession;
 struct FMLPParamVM;
 class SEditableTextBox;
-class SWidgetSwitcher;
 class SVerticalBox;
-class SScrollBox;
 
 /**
- * Main dockable panel — dual-pane (wide) / accordion (narrow) with adaptive layout.
+ * Parameter management panel.
  *
- * Data flow: UMaterial → FMLPSession (snapshot) → hand-written Slate. Value edits
- * land on the VM (not the engine object); "应用更改" flushes via Session::PushDirty().
+ * Two binding modes:
+ *  - Embedded: bound to an IMaterialEditor; reads the material from GetMaterialInterface().
+ *    No content-browser selection needed — it tracks the editor that owns this tab.
+ *  - Standalone (Nomad tab): tracks GEditor selection (content browser).
+ *
+ * Single-column compact tree layout: group headers + inline parameter rows
+ * (type pill + name + value editor + group + priority + status badge).
+ *
+ * Data flow: material → FMLPSession (snapshot) → hand-written Slate. Value edits
+ * land on the VM; "应用更改" flushes via Session::PushDirty().
  */
 class MATERIALLAYOUTPRO_API SMaterialLayoutProPanel : public SCompoundWidget
 {
 public:
 	SLATE_BEGIN_ARGS(SMaterialLayoutProPanel) {}
+		/** Embedded mode: the material editor this sidebar belongs to. */
+		SLATE_ARGUMENT(TWeakPtr<IMaterialEditor>, OwningMaterialEditor)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
 	virtual ~SMaterialLayoutProPanel() override;
 
-	// SCompoundWidget — detect size changes for adaptive layout.
-	virtual void Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime) override;
-
 private:
+	// --- Selection source (embedded vs standalone) ---
+	void BindToMaterialEditor(TWeakPtr<IMaterialEditor> InEditor);
 	void OnSelectionChanged(UObject* Selection);
+	/** Resolve the current target material from the bound editor or GEditor selection. */
+	void ResolveTargetMaterial();
 
+	// --- UI builders ---
 	TSharedRef<SWidget> BuildToolbar();
 	TSharedRef<SWidget> BuildStatusBar();
-
 	void RefreshParameters();
+	void RebuildTree();
 
-	// --- Selection ---
+	// --- Selection (within the parameter list) ---
 	void SelectParam(TSharedPtr<FMLPParamVM> Param);
 
-	// --- Layout builders ---
-	TSharedRef<SWidget> BuildWideMode();
-	TSharedRef<SWidget> BuildNarrowMode();
-	void RebuildLeftTree();
-	void RebuildNarrowList();
-	void RebuildRightDetail();
-
-	// --- Adaptive ---
-	void UpdateLayoutMode(float Width);
+	// --- Search ---
+	void OnSearchChanged(const FText& NewText);
+	bool PassesFilter(const TSharedPtr<FMLPParamVM>& Param) const;
 
 	// --- Status ---
 	FText GetTargetMaterialName() const;
@@ -75,21 +80,16 @@ private:
 	TSharedPtr<FMLPSession> Session;
 	TWeakObjectPtr<UMaterial> TargetMaterial;
 	TWeakObjectPtr<UMaterialInstance> TargetMaterialInstance;
+	/** Embedded mode: the editor this panel is bound to (null in standalone mode). */
+	TWeakPtr<IMaterialEditor> OwningMaterialEditor;
+
+	// --- Parameter-list selection ---
 	TSharedPtr<FMLPParamVM> SelectedParam;
 
-	// --- Layout state ---
-	bool bIsWideMode = true;
-	float CachedWidth = 0.f;
-
 	// --- UI containers ---
-	TSharedPtr<SWidgetSwitcher> ModeSwitcher;
-	TSharedPtr<SVerticalBox> LeftTreeContainer;
-	TSharedPtr<SVerticalBox> RightDetailContainer;
-	TSharedPtr<SVerticalBox> NarrowListContainer;
+	TSharedPtr<SVerticalBox> TreeContainer;
 	TSharedPtr<SEditableTextBox> SearchBox;
 
 	// --- Search filter ---
 	FString SearchText;
-	void OnSearchChanged(const FText& NewText);
-	bool PassesFilter(const TSharedPtr<FMLPParamVM>& Param) const;
 };
