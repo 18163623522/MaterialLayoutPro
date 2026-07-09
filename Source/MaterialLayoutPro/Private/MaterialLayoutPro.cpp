@@ -167,6 +167,50 @@ void FMaterialLayoutProModule::RegisterMenus()
 			LOCTEXT("OpenPanelMenuTip", "打开材质参数管理器面板。"),
 			FSlateIcon(FMaterialLayoutProStyle::GetStyleSetName(), "MaterialLayoutPro.OpenPanel"));
 	}
+
+	// Add a "参数布局" button to the Material Editor and Material Instance Editor toolbars.
+	// Clicking it invokes the embedded sidebar tab in the editor that owns the toolbar.
+	auto AddSidebarToolbarButton = [this](const FName& MenuName)
+	{
+		UToolMenu* ToolbarMenu = UToolMenus::Get()->ExtendMenu(MenuName);
+		if (!ToolbarMenu)
+		{
+			return;
+		}
+		FToolMenuSection& Section = ToolbarMenu->FindOrAddSection("Asset");
+		Section.AddEntry(FToolMenuEntry::InitToolBarButton(
+			"MaterialLayoutPro.ToggleSidebar",
+			FExecuteAction::CreateLambda([]()
+			{
+				// Find the currently active material editor and toggle its sidebar tab.
+				if (UAssetEditorSubsystem* AssetEditorSS = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr)
+				{
+					TArray<UObject*> EditedAssets = AssetEditorSS->GetAllEditedAssets();
+					for (UObject* Asset : EditedAssets)
+					{
+						if (Asset && Asset->IsA<UMaterialInterface>())
+						{
+							if (IAssetEditorInstance* EditorInstance = AssetEditorSS->FindEditorForAsset(Asset, false))
+							{
+								if (FAssetEditorToolkit* Toolkit = static_cast<FAssetEditorToolkit*>(EditorInstance))
+								{
+									if (TSharedPtr<FTabManager> TabManager = Toolkit->GetTabManager())
+									{
+										TabManager->TryInvokeTab(FMaterialLayoutProModule::EmbeddedTabId);
+									}
+								}
+							}
+						}
+					}
+				}
+			}),
+			LOCTEXT("ToolbarSidebarButton", "参数布局"),
+			LOCTEXT("ToolbarSidebarButtonTip", "打开/聚焦参数布局侧边栏"),
+			FSlateIcon(FMaterialLayoutProStyle::GetStyleSetName(), "MaterialLayoutPro.OpenPanel")));
+	};
+
+	AddSidebarToolbarButton("AssetEditor.MaterialEditorApp.ToolBar");
+	AddSidebarToolbarButton("AssetEditor.MaterialInstanceEditorApp.ToolBar");
 }
 
 // ============================================================================
