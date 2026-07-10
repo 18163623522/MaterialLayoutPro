@@ -406,12 +406,12 @@ void FMaterialLayoutProModule::RegisterInstanceSidebar(IMaterialEditor* InMateri
 		.SetDisplayName(LOCTEXT("InstanceSidebarTabLabel", "实例分组"))
 		.SetMenuType(ETabSpawnerMenuType::Enabled);
 
-	// Auto-open on first registration only.
-	TSharedPtr<SDockTab> ExistingTab = TabManager->FindExistingLiveTab(InstanceSidebarTabId);
-	if (!ExistingTab.IsValid())
-	{
-		TabManager->TryInvokeTab(InstanceSidebarTabId);
-	}
+	// NOTE: do NOT auto-invoke here. The toolbar button's toggle logic owns open/close.
+	// Auto-invoking here would create the tab, and the button's immediate toggle check would
+	// then see it as foreground and close it — net effect "button does nothing". This differs
+	// from RegisterEmbeddedSidebar (which auto-invokes safely) because OnAssetOpenedInEditor
+	// fires for materials but NOT for material instances, so the instance tab is never
+	// pre-created; the first creation happens inside the button click.
 }
 
 TSharedRef<SDockTab> FMaterialLayoutProModule::OnSpawnInstanceSidebarTab(const FSpawnTabArgs& Args, TWeakPtr<IMaterialEditor> InMaterialEditor)
