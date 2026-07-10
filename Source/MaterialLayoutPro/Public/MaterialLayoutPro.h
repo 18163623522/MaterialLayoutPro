@@ -42,6 +42,8 @@ private:
 	TSharedRef<SDockTab> OnSpawnEmbeddedTab(const FSpawnTabArgs& Args, TWeakPtr<IMaterialEditor> InMaterialEditor);
 	/** Register the sidebar tab into a material editor's tab manager. */
 	void RegisterEmbeddedSidebar(IMaterialEditor* InMaterialEditor);
+	/** Register a module-level toolbar extender so every material editor gets the toggle button. */
+	void RegisterMaterialEditorToolbarExtender();
 
 	// --- Graph context menu ---
 
@@ -54,6 +56,9 @@ private:
 
 	/** Asset-editor-opened delegate handle (for cleanup on shutdown). */
 	FDelegateHandle AssetOpenedHandle;
+
+	/** Shared toolbar extender kept alive for the module's lifetime (so it stays registered). */
+	TSharedPtr<FExtender> MaterialEditorToolbarExtender;
 
 	TSharedPtr<class FUICommandList> PluginCommandList;
 	bool bIsShuttingDown;

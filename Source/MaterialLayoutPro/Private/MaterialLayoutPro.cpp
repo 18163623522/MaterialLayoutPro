@@ -66,6 +66,12 @@ void FMaterialLayoutProModule::StartupModule()
 	FAssetEditorManager::Get().OnAssetOpenedInEditor().AddRaw(this, &FMaterialLayoutProModule::OnAssetOpenedInEditor);
 	UE_LOG(LogTemp, Warning, TEXT("[MLP] StartupModule: bound OnAssetOpenedInEditor"));
 
+	// Add a toolbar extender at the MODULE level (IMaterialEditorModule::GetToolBarExtensibilityManager).
+	// FMaterialEditor::ExtendToolbar() collects from this manager when building its toolbar, so every
+	// material/material-instance editor will get the button automatically — no timing issues.
+	RegisterMaterialEditorToolbarExtender();
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] StartupModule: registered module-level toolbar extender"));
+
 	// Graph context-menu extender for "Sync Comment to Group".
 	FGraphEditorModule& GraphEditorModule = FModuleManager::LoadModuleChecked<FGraphEditorModule>("GraphEditor");
 	GraphEditorModule.GetAllGraphEditorContextMenuExtender().Add(
@@ -81,6 +87,13 @@ void FMaterialLayoutProModule::ShutdownModule()
 	if (GEditor)
 	{
 		FAssetEditorManager::Get().OnAssetOpenedInEditor().RemoveAll(this);
+	}
+
+	// Remove the module-level toolbar extender so material editors don't dangle a reference.
+	if (MaterialEditorToolbarExtender.IsValid() && FModuleManager::Get().IsModuleLoaded("MaterialEditor"))
+	{
+		IMaterialEditorModule::Get().GetToolBarExtensibilityManager()->RemoveExtender(MaterialEditorToolbarExtender);
+		MaterialEditorToolbarExtender.Reset();
 	}
 
 	UToolMenus::UnRegisterStartupCallback(this);
@@ -179,6 +192,94 @@ void FMaterialLayoutProModule::RegisterMenus()
 	// editor's toolbar menu doesn't exist at module-startup time.
 }
 
+void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
+{
+	// Build one shared extender. FMaterialEditor::ExtendToolbar() pulls all extenders from
+	// IMaterialEditorModule::GetToolBarExtensibilityManager() when it builds its toolbar, so
+	// registering here covers every material / material-instance editor with no timing issues.
+	MaterialEditorToolbarExtender = MakeShareable(new FExtender());
+	MaterialEditorToolbarExtender->AddToolBarExtension(
+		"Asset",
+		EExtensionHook::After,
+		PluginCommandList,
+		FToolBarExtensionDelegate::CreateLambda([](FToolBarBuilder& Builder)
+		{
+			Builder.AddToolBarButton(
+				FUIAction(
+					FExecuteAction::CreateLambda([]()
+					{
+						// Find the currently focused material editor and toggle its sidebar tab.
+						if (UAssetEditorSubsystem* AssetEditorSS = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr)
+						{
+							for (UObject* Asset : AssetEditorSS->GetAllEditedAssets())
+							{
+								if (Asset && Asset->IsA<UMaterialInterface>())
+								{
+									if (IAssetEditorInstance* Instance = AssetEditorSS->FindEditorForAsset(Asset, false))
+									{
+										if (FAssetEditorToolkit* Toolkit = static_cast<FAssetEditorToolkit*>(Instance))
+										{
+											if (TSharedPtr<FTabManager> TM = Toolkit->GetTabManager())
+											{
+												TSharedPtr<SDockTab> Tab = TM->FindExistingLiveTab(FMaterialLayoutProModule::EmbeddedTabId);
+												if (Tab.IsValid() && Tab->IsForeground())
+												{
+													Tab->RequestCloseTab();
+												}
+												else
+												{
+													TM->TryInvokeTab(FMaterialLayoutProModule::EmbeddedTabId);
+												}
+												return;
+											}
+										}
+									}
+								}
+							}
+						}
+					}),
+					FCanExecuteAction(),
+					FIsActionChecked::CreateLambda([]() -> bool
+					{
+						if (UAssetEditorSubsystem* AssetEditorSS = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr)
+						{
+							for (UObject* Asset : AssetEditorSS->GetAllEditedAssets())
+							{
+								if (Asset && Asset->IsA<UMaterialInterface>())
+								{
+									if (IAssetEditorInstance* Instance = AssetEditorSS->FindEditorForAsset(Asset, false))
+									{
+										if (FAssetEditorToolkit* Toolkit = static_cast<FAssetEditorToolkit*>(Instance))
+										{
+											if (TSharedPtr<FTabManager> TM = Toolkit->GetTabManager())
+											{
+												TSharedPtr<SDockTab> Tab = TM->FindExistingLiveTab(FMaterialLayoutProModule::EmbeddedTabId);
+												return Tab.IsValid() && Tab->IsForeground();
+											}
+										}
+									}
+								}
+							}
+						}
+						return false;
+					})
+				),
+				NAME_None,
+				FText::FromString(TEXT("参数布局")),
+				FText::FromString(TEXT("打开/关闭参数布局侧边栏")),
+#if ENGINE_MAJOR_VERSION >= 5
+				FSlateIcon(FAppStyle::GetAppStyleSetName(), "DetailsPanel")
+#else
+				FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.ToggleDetails")
+#endif
+			);
+		}));
+
+	IMaterialEditorModule& MaterialEditorModule = IMaterialEditorModule::Get();
+	MaterialEditorModule.GetToolBarExtensibilityManager()->AddExtender(MaterialEditorToolbarExtender);
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] RegisterMaterialEditorToolbarExtender: added to module toolbar manager"));
+}
+
 // ============================================================================
 // Material Editor embedding
 // ============================================================================
@@ -228,59 +329,8 @@ void FMaterialLayoutProModule::RegisterEmbeddedSidebar(IMaterialEditor* InMateri
 		.SetDisplayName(TabLabel)
 		.SetMenuType(ETabSpawnerMenuType::Enabled); // Enabled so it appears in the editor's Window menu as a fallback.
 
-	// Add a toolbar button to this editor (more reliable than ToolMenus at module-startup time,
-	// because the material editor's toolbar only exists after the editor initializes).
-	TSharedPtr<FExtender> ToolbarExtender = MakeShareable(new FExtender());
-	ToolbarExtender->AddToolBarExtension(
-		"Asset",
-		EExtensionHook::After,
-		nullptr,
-		FToolBarExtensionDelegate::CreateLambda([WeakEditor](FToolBarBuilder& Builder)
-		{
-			// Toggle button: opens/closes the sidebar. Check state reflects whether
-			// the tab is currently open (so the icon shows pressed when sidebar is visible).
-			Builder.AddToolBarButton(
-				FUIAction(
-					FExecuteAction::CreateLambda([WeakEditor]()
-					{
-						auto Editor = WeakEditor.Pin();
-						if (Editor.IsValid())
-						{
-							if (TSharedPtr<FTabManager> TM = StaticCastSharedPtr<IMaterialEditor>(Editor)->GetTabManager())
-							{
-								TSharedPtr<SDockTab> ExistingTab = TM->FindExistingLiveTab(FMaterialLayoutProModule::EmbeddedTabId);
-								if (ExistingTab.IsValid() && ExistingTab->IsForeground())
-								{
-									ExistingTab->RequestCloseTab();
-								}
-								else
-								{
-									TM->TryInvokeTab(FMaterialLayoutProModule::EmbeddedTabId);
-								}
-							}
-						}
-					}),
-					FCanExecuteAction(),
-					FIsActionChecked::CreateLambda([WeakEditor]() -> bool
-					{
-						auto Editor = WeakEditor.Pin();
-						if (!Editor.IsValid()) return false;
-						if (TSharedPtr<FTabManager> TM = StaticCastSharedPtr<IMaterialEditor>(Editor)->GetTabManager())
-						{
-							TSharedPtr<SDockTab> Tab = TM->FindExistingLiveTab(FMaterialLayoutProModule::EmbeddedTabId);
-							return Tab.IsValid() && Tab->IsForeground();
-						}
-						return false;
-					})
-				),
-				NAME_None,
-				LOCTEXT("ToolbarSidebarButton", "参数布局"),
-				LOCTEXT("ToolbarSidebarButtonTip", "打开/关闭参数布局侧边栏"),
-				FSlateIcon(FEditorStyle::Get().GetStyleSetName(), "LevelEditor.ToggleDetails")
-			);
-		}));
-	InMaterialEditor->GetToolBarExtensibilityManager()->AddExtender(ToolbarExtender);
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] RegisterEmbeddedSidebar: toolbar extender added"));
+	// NOTE: toolbar button is added at the module level (RegisterMaterialEditorToolbarExtender),
+	// which FMaterialEditor::ExtendToolbar collects automatically. No per-editor extender needed.
 
 	// Invoke the tab so it opens automatically beside the graph canvas.
 	TSharedPtr<SDockTab> InvokedTab = TabManager->TryInvokeTab(EmbeddedTabId);
