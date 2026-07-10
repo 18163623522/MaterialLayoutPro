@@ -8,65 +8,87 @@
 #include "Widgets/SWidget.h"
 #include "Model/MaterialParameterInfo.h"
 
+#if ENGINE_MAJOR_VERSION >= 5
+#include "Styling/AppStyle.h"
+#define MLP_GET_STYLE() FAppStyle::Get()
+#else
+#include "EditorStyleSet.h"
+#define MLP_GET_STYLE() FEditorStyle::Get()
+#endif
+
 /**
  * Centralized design token system for the Material Layout Pro UI.
  *
- * Adapted from the Niagara Attribute Inspector design system:
- *   - Semantic color tokens for consistent theming
- *   - 4/8dp spacing rhythm
- *   - Unified font size hierarchy
+ * Colors try the engine's own style first; if a token is unavailable (returns unspecified),
+ * we fall back to a safe constant so the panel is never transparent/black. This way it
+ * blends with the native editor theme on both 4.26 and 5.x.
  */
 class FMLPTheme
 {
-public:
-	// Color Tokens — aligned with UE5's FAppStyle palette (FAppStyle.cpp values).
-	// Matches the editor's native dark theme so the panel blends in seamlessly.
+private:
+	/** Resolve an engine SlateColor by key; fall back to SafeColor if unspecified/invalid. */
+	static FLinearColor ResolveColor(const FString& Key, const FLinearColor& Fallback)
+	{
+		FSlateColor Sc = MLP_GET_STYLE().GetSlateColor(FName(*Key));
+		// If the color isn't specified by the style, GetSpecifiedColor returns UseForeground() sentinel.
+		if (!Sc.IsColorSpecified())
+		{
+			return Fallback;
+		}
+		return Sc.GetSpecifiedColor();
+	}
 
-	/** Deepest background — toolbar / status bar base. #1A1A1A */
-	static const FLinearColor& Background() { static const FLinearColor V(0.102f, 0.102f, 0.102f, 1.0f); return V; }
-	/** Panel / card surface. #2A2A2A */
-	static const FLinearColor& Surface() { static const FLinearColor V(0.165f, 0.165f, 0.165f, 1.0f); return V; }
-	/** Alternate row / slightly darker than Surface. #212121 */
-	static const FLinearColor& SurfaceAlt() { static const FLinearColor V(0.129f, 0.129f, 0.129f, 1.0f); return V; }
-	/** Brighter surface for hovered/active items. #3A3A3A */
-	static const FLinearColor& SurfaceHover() { static const FLinearColor V(0.227f, 0.227f, 0.227f, 1.0f); return V; }
-	/** Border / divider line. #363636 */
-	static const FLinearColor& Border() { static const FLinearColor V(0.212f, 0.212f, 0.212f, 1.0f); return V; }
-	/** Primary text — near white. #DCDCDC (UE5 foreground, softer than pure white) */
-	static const FLinearColor& Foreground() { static const FLinearColor V(0.863f, 0.863f, 0.863f, 1.0f); return V; }
-	/** Secondary text — labels, hints. #9A9A9A (contrast 4.6:1 on #1A1A1A, AA compliant) */
-	static const FLinearColor& Muted() { static const FLinearColor V(0.604f, 0.604f, 0.604f, 1.0f); return V; }
-	/** Accent / active emphasis — UE5 blue #0A8FE3, used for primary actions and selection. */
-	static const FLinearColor& Accent() { static const FLinearColor V(0.039f, 0.561f, 0.890f, 1.0f); return V; }
-	/** Accent with reduced alpha for backgrounds. */
-	static const FLinearColor& AccentBg() { static const FLinearColor V(0.039f, 0.561f, 0.890f, 0.25f); return V; }
-	/** Destructive / danger. #DB4545 */
+public:
+	// --- Backgrounds / surfaces (engine-native with fallback) ---
+
+	static FLinearColor Background() { return ResolveColor(TEXT("Colors.Background"), FLinearColor(0.102f, 0.102f, 0.102f, 1.0f)); }
+	static FLinearColor Surface() { return ResolveColor(TEXT("Colors.Panel"), FLinearColor(0.165f, 0.165f, 0.165f, 1.0f)); }
+	static FLinearColor SurfaceAlt() { return Surface() * 0.85f; }
+	static FLinearColor SurfaceHover() { return ResolveColor(TEXT("Colors.Header"), FLinearColor(0.227f, 0.227f, 0.227f, 1.0f)); }
+	static FLinearColor Border() { return SurfaceHover(); }
+
+	// --- Text (engine-native with fallback) ---
+
+	static FLinearColor Foreground() { return ResolveColor(TEXT("Colors.Foreground"), FLinearColor(0.863f, 0.863f, 0.863f, 1.0f)); }
+	static FLinearColor Muted() { return ResolveColor(TEXT("Colors.Dim"), FLinearColor(0.604f, 0.604f, 0.604f, 1.0f)); }
+
+	// --- Accent / selection (engine-native with fallback) ---
+
+	static FLinearColor Accent()
+	{
+		FLinearColor C = ResolveColor(TEXT("Colors.AccentBlue"), FLinearColor(0.039f, 0.561f, 0.890f, 1.0f));
+		// Some engines only register "Colors.Selection" — try it as a secondary fallback.
+		if (!MLP_GET_STYLE().GetSlateColor(FName("Colors.AccentBlue")).IsColorSpecified())
+		{
+			C = ResolveColor(TEXT("Colors.Selection"), C);
+		}
+		return C;
+	}
+	static FLinearColor AccentBg() { FLinearColor C = Accent(); C.A = 0.25f; return C; }
+	static FLinearColor Selection() { return ResolveColor(TEXT("Colors.Selection"), Accent()); }
+	static FLinearColor SelectionBg() { FLinearColor C = Selection(); C.A = 0.30f; return C; }
+
+	// --- Semantic colors (kept as constants — these are semantic, not theme-dependent) ---
+
 	static const FLinearColor& Destructive() { static const FLinearColor V(0.859f, 0.271f, 0.271f, 1.0f); return V; }
-	/** Warning. #F09E0B */
 	static const FLinearColor& Warning() { static const FLinearColor V(0.941f, 0.620f, 0.043f, 1.0f); return V; }
-	/** Scalar parameter color — green #7ACC40 (UE pin convention). */
+
+	// Parameter pin colors — UE convention, matches the material graph pins.
 	static const FLinearColor& TypeScalar() { static const FLinearColor V(0.478f, 0.800f, 0.251f, 1.0f); return V; }
-	/** Vector parameter color — red #DB4545 (UE pin convention). */
 	static const FLinearColor& TypeVector() { static const FLinearColor V(0.859f, 0.271f, 0.271f, 1.0f); return V; }
-	/** Texture parameter color — cyan #00BBFE (UE pin convention). */
 	static const FLinearColor& TypeTexture() { static const FLinearColor V(0.000f, 0.733f, 0.996f, 1.0f); return V; }
-	/** Static switch / bool parameter color — gray #BDBDBD. */
 	static const FLinearColor& TypeStatic() { static const FLinearColor V(0.741f, 0.741f, 0.741f, 1.0f); return V; }
-	/** Empty-state overlay background. */
+
+	// Status badge colors.
+	static const FLinearColor& StatusUsed() { return TypeScalar(); }
+	static const FLinearColor& StatusUnused() { return Destructive(); }
+	static const FLinearColor& StatusHalfUsed() { return Warning(); }
+	static const FLinearColor& StatusIndirect() { static const FLinearColor V(0.957f, 0.537f, 0.267f, 1.0f); return V; }
+	static const FLinearColor& StatusUnknown() { static const FLinearColor V(0.541f, 0.541f, 0.541f, 1.0f); return V; }
+
 	static const FLinearColor& Overlay() { static const FLinearColor V(0.020f, 0.020f, 0.020f, 0.92f); return V; }
 
-	// Status badge colors — used for the usage state pill on each row.
-	static const FLinearColor& StatusUsed() { static const FLinearColor V(0.478f, 0.800f, 0.251f, 1.0f); return V; }       // green
-	static const FLinearColor& StatusUnused() { static const FLinearColor V(0.859f, 0.271f, 0.271f, 1.0f); return V; }     // red
-	static const FLinearColor& StatusHalfUsed() { static const FLinearColor V(0.941f, 0.620f, 0.043f, 1.0f); return V; }   // amber
-	static const FLinearColor& StatusIndirect() { static const FLinearColor V(0.957f, 0.537f, 0.267f, 1.0f); return V; }    // orange
-	static const FLinearColor& StatusUnknown() { static const FLinearColor V(0.541f, 0.541f, 0.541f, 1.0f); return V; }      // muted
-
-	// Selection — UE5 blue, matching the editor's accent.
-	static const FLinearColor& Selection() { static const FLinearColor V(0.039f, 0.561f, 0.890f, 1.0f); return V; }
-	static const FLinearColor& SelectionBg() { static const FLinearColor V(0.039f, 0.561f, 0.890f, 0.25f); return V; }
-
-	// Spacing Tokens (4/8dp rhythm — UE5 uses slightly larger spacing than 4.26)
+	// --- Spacing tokens (4/8dp rhythm) ---
 
 	static const FMargin& PadXS() { static const FMargin V(2.f); return V; }
 	static const FMargin& PadSM() { static const FMargin V(4.f); return V; }
@@ -76,7 +98,7 @@ public:
 	static const FMargin& PadH() { static const FMargin V(6.f, 0.f); return V; }
 	static const FMargin& PadBtn() { static const FMargin V(8.f, 3.f); return V; }
 
-	// Font Tokens — UE5 sizes (slightly larger than 4.26 for readability)
+	// --- Font tokens (engine-native sizes) ---
 
 	static const FSlateFontInfo& FontSmall() { static const FSlateFontInfo V = FCoreStyle::GetDefaultFontStyle("Normal", 9); return V; }
 	static const FSlateFontInfo& FontBody() { static const FSlateFontInfo V = FCoreStyle::GetDefaultFontStyle("Normal", 10); return V; }
@@ -149,28 +171,28 @@ public:
 		];
 	}
 
-	/** Background color for a normal toolbar button (idle). */
-	static FLinearColor ButtonNormal()    { return FLinearColor(0.165f, 0.165f, 0.165f, 0.8f); }
+	/** Background color for a normal toolbar button (idle) — matches editor buttons. */
+	static FLinearColor ButtonNormal()    { return MLP_GET_STYLE().GetSlateColor("Colors.Header").GetSpecifiedColor(); }
 	/** Background color for a hovered toolbar button. */
-	static FLinearColor ButtonHover()     { return FLinearColor(0.227f, 0.227f, 0.227f, 0.9f); }
+	static FLinearColor ButtonHover()     { return MLP_GET_STYLE().GetSlateColor("Colors.Header").GetSpecifiedColor() * 1.2f; }
 	/** Background color for a primary action button (Apply). */
 	static FLinearColor ButtonPrimary()    { return Accent(); }
 	/** Background color for a primary button hover. */
-	static FLinearColor ButtonPrimaryHover() { return FLinearColor(0.06f, 0.66f, 0.96f, 1.0f); }
+	static FLinearColor ButtonPrimaryHover() { return Accent() * 1.2f; }
 	/** Background color for a danger button (Delete). */
 	static FLinearColor ButtonDanger()     { return Destructive(); }
 	/** Background color for a danger button hover. */
-	static FLinearColor ButtonDangerHover() { return FLinearColor(0.95f, 0.35f, 0.35f, 1.0f); }
+	static FLinearColor ButtonDangerHover() { return Destructive() * 1.15f; }
 	/** Text color for a normal button. */
 	static FLinearColor ButtonTextNormal() { return Foreground(); }
 	/** Text color for a primary/danger button (white on colored bg). */
 	static FLinearColor ButtonTextOnColor() { return FLinearColor::White; }
-	/** Background color for an active tab. */
-	static FLinearColor TabActive()        { return FLinearColor(0.039f, 0.561f, 0.890f, 0.85f); }
+	/** Background color for an active tab — accent-tinted. */
+	static FLinearColor TabActive()        { FLinearColor C = Accent(); C.A = 0.85f; return C; }
 	/** Background color for an inactive tab. */
-	static FLinearColor TabInactive()      { return FLinearColor(0.165f, 0.165f, 0.165f, 0.8f); }
+	static FLinearColor TabInactive()      { FLinearColor C = Surface(); C.A = 0.8f; return C; }
 	/** Background color for a hovered inactive tab. */
-	static FLinearColor TabHover()         { return FLinearColor(0.227f, 0.227f, 0.227f, 0.9f); }
+	static FLinearColor TabHover()         { return SurfaceHover(); }
 
 	// Type → color/abbreviation mapping (lets VM rows build pills without FMLPParameterInfo).
 
