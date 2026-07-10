@@ -532,12 +532,18 @@ void SMaterialLayoutProPanel::RefreshParameters()
 {
 	if (!Session.IsValid()) return;
 
-	// Snapshot selected param names before refresh - PullAll creates new VM objects,
-	// so we need to rebind SelectedParams to the new VMs by name match.
+	// Snapshot selected param names + group sort priorities before refresh.
+	// PullAll creates new VM objects, so we need to rebind by name match.
 	TArray<FName> SelectedNames;
 	for (const TSharedPtr<FMLPParamVM>& Sel : SelectedParams)
 	{
 		if (Sel.IsValid()) SelectedNames.Add(Sel->Name);
+	}
+	TMap<FName, int32> OldGroupSortPriorities;
+	for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
+	{
+		if (Group.IsValid() && Group->SortPriority != 0)
+			OldGroupSortPriorities.Add(Group->Name, Group->SortPriority);
 	}
 
 	// In embedded mode, re-resolve the target (editor may have switched assets).
@@ -550,6 +556,22 @@ void SMaterialLayoutProPanel::RefreshParameters()
 	{
 		Session->TargetMaterial = TargetMaterial;
 		Session->PullAll();
+
+		// Restore group sort priorities.
+		for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
+		{
+			if (Group.IsValid())
+			{
+				const int32* OldPrio = OldGroupSortPriorities.Find(Group->Name);
+				if (OldPrio) Group->SortPriority = *OldPrio;
+			}
+		}
+		// Re-sort groups with restored priorities.
+		Session->Groups.Sort([](const TSharedPtr<FMLPGroupVM>& A, const TSharedPtr<FMLPGroupVM>& B)
+		{
+			if (A->SortPriority != B->SortPriority) return A->SortPriority < B->SortPriority;
+			return A->Name.ToString() < B->Name.ToString();
+		});
 
 		// Rebind SelectedParams to the new VMs by name match.
 		TArray<TSharedPtr<FMLPParamVM>> NewSelection;
