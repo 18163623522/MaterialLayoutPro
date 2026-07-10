@@ -226,15 +226,25 @@ FReply SMaterialParameterRow::OnPreviewMouseButtonDown(const FGeometry& MyGeomet
 		const bool bCtrl = MouseEvent.IsControlDown();
 		const bool bShift = MouseEvent.IsShiftDown();
 
+		// Check if click is in the drag handle area (first ~24px of the row).
+		const FVector2D LocalPos = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+		const bool bOnDragHandle = (LocalPos.X < 24.f);
+
 		if (bCtrl || bShift)
 		{
 			// Multi-select: intercept and consume so children don't react.
 			OnClickedDelegate.ExecuteIfBound(VM, bCtrl, bShift);
 			return FReply::Handled();
 		}
-		// Plain click: fire selection but DON'T consume - let children (text boxes,
-		// value editors) also receive the click for editing. This way both selection
-		// and editing work on a single click.
+
+		// Plain click on drag handle: don't select or jump - let the handle start the drag.
+		if (bOnDragHandle)
+		{
+			return SCompoundWidget::OnPreviewMouseButtonDown(MyGeometry, MouseEvent);
+		}
+
+		// Plain click elsewhere: fire selection (for grouping, etc.) but don't consume -
+		// let children (text boxes, value editors) also receive the click for editing.
 		OnClickedDelegate.ExecuteIfBound(VM, false, false);
 	}
 	return SCompoundWidget::OnPreviewMouseButtonDown(MyGeometry, MouseEvent);
@@ -266,13 +276,13 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildDragHandle()
 		.Cursor(EMouseCursor::GrabHand)
 		[
 			SNew(SBox)
-			.WidthOverride(12.f)
-			.HeightOverride(16.f)
+			.WidthOverride(20.f)
+			.HeightOverride(20.f)
 			.HAlign(HAlign_Center)
 			.VAlign(VAlign_Center)
 			[
 				SNew(STextBlock)
-				.Text(FText::FromString(TEXT("\xE2\xA1\xAE"))) // ≡
+				.Text(FText::FromString(TEXT("::")))
 				.Font(FMLPTheme::FontSmall())
 				.ColorAndOpacity_Lambda([this]() -> FSlateColor {
 					return bSelected ? FMLPTheme::Accent() : FMLPTheme::Muted();
