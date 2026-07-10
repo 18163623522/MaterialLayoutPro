@@ -142,14 +142,12 @@ void SMaterialLayoutProPanel::ResolveTargetMaterial()
 				{
 					TargetMaterial = Mat;
 					TargetMaterialInstance = nullptr;
-					bInstanceMode = false;
 					return;
 				}
 				if (UMaterialInstance* MI = Cast<UMaterialInstance>(MatInterface))
 				{
 					TargetMaterialInstance = MI;
 					TargetMaterial = MI ? MI->GetBaseMaterial() : nullptr;
-					bInstanceMode = true;
 					return;
 				}
 		}
@@ -254,12 +252,6 @@ void SMaterialLayoutProPanel::RebuildTree()
 {
 	if (!TreeContainer.IsValid()) return;
 	TreeContainer->ClearChildren();
-
-	if (bInstanceMode)
-	{
-		BuildInstanceContent();
-		return;
-	}
 
 	if (!Session.IsValid() || Session->Groups.Num() == 0)
 	{
@@ -547,15 +539,6 @@ void SMaterialLayoutProPanel::RefreshParameters()
 {
 	if (!Session.IsValid()) return;
 
-	// Instance mode: pull from instance, not from material expressions.
-	if (bInstanceMode)
-	{
-		if (OwningMaterialEditor.IsValid()) ResolveTargetMaterial();
-		PullFromInstance();
-		RebuildTree();
-		return;
-	}
-
 	// Snapshot selected param names + group sort priorities before refresh.
 	// PullAll creates new VM objects, so we need to rebind by name match.
 	TArray<FName> SelectedNames;
@@ -691,6 +674,20 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 		[
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("IM","导入")).ToolTipText(LOCTEXT("IMT","导入 CSV")).OnClicked(this,&SMaterialLayoutProPanel::OnImportClicked)
+		]
+		// Instance group panel button - only visible when editing a material instance.
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SBox)
+			.Visibility(TAttribute<EVisibility>::Create([this]() -> EVisibility {
+				return TargetMaterialInstance.IsValid() ? EVisibility::Visible : EVisibility::Collapsed;
+			}))
+			[
+				SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+				.ButtonColorAndOpacity(FMLPTheme::ButtonPrimary()).ForegroundColor(FMLPTheme::ButtonTextOnColor())
+				.Text(LOCTEXT("IGP","实例分组")).ToolTipText(LOCTEXT("IGPT","打开材质实例参数分组面板"))
+				.OnClicked(this, &SMaterialLayoutProPanel::OnInstanceGroupClicked)
+			]
 		]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		// Set-group for multi-selection: input box + apply button.
@@ -1460,7 +1457,36 @@ void SMaterialLayoutProPanel::OnInstanceBoolChanged(TSharedPtr<FMLPInstanceParam
 	// For simplicity, we just mark the instance dirty.
 	MI->PostEditChange();
 	MI->MarkPackageDirty();
-	RebuildTree();
+}
+
+// ============================================================================
+// Instance group panel - opens as a separate window
+// ============================================================================
+
+FReply SMaterialLayoutProPanel::OnInstanceGroupClicked()
+{
+	if (!TargetMaterialInstance.IsValid()) return FReply::Handled();
+
+	PullFromInstance();
+	if (InstanceParams.Num() == 0) return FReply::Handled();
+
+	// Default to first tab.
+	if (!InstanceTabNames.Contains(CurrentTab))
+		CurrentTab = InstanceTabNames.Num() > 0 ? InstanceTabNames[0] : NAME_None;
+
+	// Build content and open as a standalone window.
+	TSharedRef<SWidget> Content = BuildInstanceContent();
+
+	TSharedRef<SWindow> Window = SNew(SWindow)
+		.Title(FText::FromString(TEXT("材质实例参数分组")))
+		.ClientSize(FVector2D(600, 400))
+		.SizingRule(ESizingRule::UserSized)
+		[
+			Content
+		];
+
+	FSlateApplication::Get().AddWindow(Window);
+	return FReply::Handled();
 }
 
 #undef LOCTEXT_NAMESPACE

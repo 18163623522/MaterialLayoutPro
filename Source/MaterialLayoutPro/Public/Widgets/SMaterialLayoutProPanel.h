@@ -79,6 +79,7 @@ private:
 	FReply OnGroupByCommentClicked();
 	FReply OnApplyChangesClicked();
 	FReply OnSetGroupForSelectionClicked();
+	FReply OnInstanceGroupClicked();  // Opens instance group panel as a window
 
 	// --- Instance mode (tabbed group panel) ---
 	void PullFromInstance();
