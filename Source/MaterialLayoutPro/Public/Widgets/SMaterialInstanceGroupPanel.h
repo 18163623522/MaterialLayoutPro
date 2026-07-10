@@ -10,6 +10,7 @@ class IMaterialEditor;
 class SVerticalBox;
 class SScrollBox;
 class SEditableTextBox;
+class FMLPInstanceParamDragDrop;
 
 /** A single parameter in instance mode: name + type + group + override state + value. */
 struct FMLPInstanceParamVM
@@ -25,6 +26,55 @@ struct FMLPInstanceParamVM
 	FLinearColor VectorValue = FLinearColor::White;
 	TSoftObjectPtr<UTexture> TextureValue;
 	bool BoolValue = false;
+};
+
+/**
+ * Drop target wrapping a group title bar. Highlights when an instance parameter is dragged
+ * over it and fires a delegate carrying the param VM on drop. Used to drag params between
+ * groups (writes AssetUserData only).
+ */
+class MATERIALLAYOUTPRO_API SInstanceGroupDropTarget : public SCompoundWidget
+{
+public:
+	DECLARE_DELEGATE_OneParam(FOnParamDroppedOnGroup, TSharedPtr<FMLPInstanceParamVM>);
+
+	SLATE_BEGIN_ARGS(SInstanceGroupDropTarget) {}
+		SLATE_EVENT(FOnParamDroppedOnGroup, OnDropped)
+		SLATE_DEFAULT_SLOT(FArguments, Content)
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments& InArgs);
+
+	virtual void OnDragEnter(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
+	virtual void OnDragLeave(const FDragDropEvent& DragDropEvent) override;
+	virtual FReply OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
+
+private:
+	FOnParamDroppedOnGroup OnDroppedDelegate;
+	bool bIsDragOver = false;
+};
+
+/**
+ * Drag source wrapping a parameter row. On left-mouse-down it requests drag detection; on
+ * the subsequent mouse-move Slate calls OnDragDetected, which begins a drag-drop operation
+ * carrying the param's VM. The drop target is the group title bar (SInstanceGroupDropTarget).
+ */
+class MATERIALLAYOUTPRO_API SInstanceParamDragSource : public SCompoundWidget
+{
+public:
+	SLATE_BEGIN_ARGS(SInstanceParamDragSource) {}
+		/** The param this row represents (captured for the drag payload). */
+		SLATE_ARGUMENT(TSharedPtr<FMLPInstanceParamVM>, Param)
+		SLATE_DEFAULT_SLOT(FArguments, Content)
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments& InArgs);
+
+	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
+	virtual FReply OnDragDetected(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
+
+private:
+	TSharedPtr<FMLPInstanceParamVM> Param;
 };
 
 /** A resolved group with its parameters, ready for display. */

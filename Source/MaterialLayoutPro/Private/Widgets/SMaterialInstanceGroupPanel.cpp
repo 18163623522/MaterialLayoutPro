@@ -3,6 +3,7 @@
 #include "MaterialInstanceGroupData.h"
 #include "Model/MaterialParameterScanner.h"
 #include "Model/MaterialParameterInfo.h"
+#include "Model/MaterialInstanceParamDragDrop.h"
 
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -45,6 +46,89 @@
 #endif
 
 #define LOCTEXT_NAMESPACE "SMaterialInstanceGroupPanel"
+
+// ============================================================================
+// SInstanceGroupDropTarget
+// ============================================================================
+
+void SInstanceGroupDropTarget::Construct(const FArguments& InArgs)
+{
+	OnDroppedDelegate = InArgs._OnDropped;
+
+	// Wrap the content in a border whose color reacts to bIsDragOver.
+	ChildSlot
+	[
+		SNew(SBorder)
+		.BorderBackgroundColor_Lambda([this]() -> FLinearColor {
+			return bIsDragOver ? FMLPTheme::Accent() : FLinearColor::Transparent;
+		})
+		.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+		.Padding(FMargin(0.f))
+		[
+			InArgs._Content.Widget
+		]
+	];
+}
+
+void SInstanceGroupDropTarget::OnDragEnter(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
+{
+	TSharedPtr<FMLPInstanceParamDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPInstanceParamDragDrop>();
+	if (DragOp.IsValid() && DragOp->IsValid())
+	{
+		bIsDragOver = true;
+	}
+}
+
+void SInstanceGroupDropTarget::OnDragLeave(const FDragDropEvent& DragDropEvent)
+{
+	bIsDragOver = false;
+}
+
+FReply SInstanceGroupDropTarget::OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
+{
+	bIsDragOver = false;
+	TSharedPtr<FMLPInstanceParamDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPInstanceParamDragDrop>();
+	if (DragOp.IsValid() && DragOp->IsValid())
+	{
+		OnDroppedDelegate.ExecuteIfBound(DragOp->Param);
+		return FReply::Handled();
+	}
+	return FReply::Unhandled();
+}
+
+// ============================================================================
+// SInstanceParamDragSource
+// ============================================================================
+
+void SInstanceParamDragSource::Construct(const FArguments& InArgs)
+{
+	Param = InArgs._Param;
+	ChildSlot
+	[
+		InArgs._Content.Widget
+	];
+}
+
+FReply SInstanceParamDragSource::OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+{
+	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+	{
+		// Request drag detection — Slate will call OnDragDetected after the user moves the
+		// mouse enough, so a plain click still falls through to child widgets (editable boxes).
+		return FReply::Handled().DetectDrag(AsShared(), EKeys::LeftMouseButton);
+	}
+	return FReply::Unhandled();
+}
+
+FReply SInstanceParamDragSource::OnDragDetected(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+{
+	if (MouseEvent.IsMouseButtonDown(EKeys::LeftMouseButton) && Param.IsValid())
+	{
+		TSharedPtr<FMLPInstanceParamDragDrop> DragOp = MakeShared<FMLPInstanceParamDragDrop>(Param);
+		return FReply::Handled().BeginDragDrop(DragOp.ToSharedRef());
+	}
+	return FReply::Unhandled();
+}
 
 void SMaterialInstanceGroupPanel::Construct(const FArguments& InArgs)
 {
@@ -379,15 +463,20 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 		const FName GroupName = Group->Name;
 		const int32 SortPrio = Group->SortPriority;
 
-		// --- Group title bar ---
+		// --- Group title bar (also a DROP TARGET — drag a param row here to move it into this group) ---
 		ContentBox->AddSlot().AutoHeight().Padding(FMargin(0, 8, 0, 2))
 		[
-			SNew(SBorder)
-			.BorderBackgroundColor(FLinearColor(FMLPTheme::Accent().R, FMLPTheme::Accent().G, FMLPTheme::Accent().B, 0.18f))
-			.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-			.Padding(FMargin(4, 3, 4, 3))
+			SNew(SInstanceGroupDropTarget)
+			.OnDropped(SInstanceGroupDropTarget::FOnParamDroppedOnGroup::CreateLambda([WeakSelf, GroupName](TSharedPtr<FMLPInstanceParamVM> Param) {
+				if (auto Self = WeakSelf.Pin()) Self->OnParamMovedToGroup(Param, GroupName);
+			}))
 			[
-				SNew(SHorizontalBox)
+				SNew(SBorder)
+				.BorderBackgroundColor(FLinearColor(FMLPTheme::Accent().R, FMLPTheme::Accent().G, FMLPTheme::Accent().B, 0.18f))
+				.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+				.Padding(FMargin(4, 3, 4, 3))
+				[
+					SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 				[
 					SNew(SBox).WidthOverride(36.f)
@@ -432,6 +521,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 					]
 				]
 			]
+			] // end SInstanceGroupDropTarget
 		];
 
 		// --- Parameter rows for this group ---
@@ -576,10 +666,13 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 
 			ContentBox->AddSlot().AutoHeight().Padding(FMargin(2, 1))
 			[
-				SNew(SHorizontalBox)
-				// Override checkbox
-				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				SNew(SInstanceParamDragSource)
+				.Param(P)
 				[
+					SNew(SHorizontalBox)
+					// Override checkbox
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+					[
 					SNew(SCheckBox)
 					.IsChecked_Lambda([WeakVM]() -> ECheckBoxState {
 						auto V = WeakVM.Pin();
@@ -617,7 +710,10 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 					SNew(SComboBox<TSharedPtr<FName>>)
 					.OptionsSource(&CachedGroupNames)
 					.OnGenerateWidget_Lambda([](TSharedPtr<FName> Item) -> TSharedRef<SWidget> {
-						return SNew(STextBlock).Text(Item.IsValid() ? FText::FromName(*Item) : FText::GetEmpty()).Font(FMLPTheme::FontSmall());
+						return SNew(STextBlock)
+							.Text(Item.IsValid() ? FText::FromName(*Item) : FText::GetEmpty())
+							.Font(FMLPTheme::FontSmall())
+							.ColorAndOpacity(FMLPTheme::Foreground());
 					})
 					.OnSelectionChanged_Lambda([WeakSelf, WeakVM](TSharedPtr<FName> NewItem, ESelectInfo::Type) {
 						auto Self = WeakSelf.Pin(); auto V = WeakVM.Pin();
@@ -628,6 +724,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 							Self->OnParamMovedToGroup(V, NewGroup);
 						}
 					})
+					.ForegroundColor(FMLPTheme::Foreground())
 					[
 						SNew(STextBlock)
 						.Text_Lambda([WeakVM]() -> FText {
@@ -635,7 +732,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 							return V.IsValid() ? FText::FromName(V->EffectiveGroup) : FText::GetEmpty();
 						})
 						.Font(FMLPTheme::FontSmall())
-						.ColorAndOpacity(FMLPTheme::Muted())
+						.ColorAndOpacity(FMLPTheme::Foreground())
 					]
 				]
 				// Override indicator
@@ -649,6 +746,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 					.ColorAndOpacity(FMLPTheme::Accent())
 					.Font(FMLPTheme::FontSmall())
 				]
+				] // end SInstanceParamDragSource content
 			];
 		}
 
