@@ -323,25 +323,20 @@ void SMaterialLayoutProPanel::RebuildTree()
 			.ColorAndOpacity(FMLPTheme::Muted())
 		];
 
-		// Inline parameter rows (detail mode = show group + priority editors).
+		// Inline parameter rows — clickable background (not a button) so internal
+		// editable boxes / value controls handle their own clicks without conflict.
 		for (const TSharedPtr<FMLPParamVM>& Param : Group->Parameters)
 		{
 			if (!PassesFilter(Param)) continue;
 			const bool bSel = (SelectedParam == Param);
-			TreeContainer->AddSlot().AutoHeight().Padding(FMargin(0.f, 0.f, 0.f, 0.f))
+			TreeContainer->AddSlot().AutoHeight()
 			[
-				SNew(SButton)
-				.ButtonStyle(MLP_STYLE::Get(), "FlatButton")
-				.ContentPadding(FMargin(0.f))
-				.HAlign(HAlign_Fill)
-				.OnClicked_Lambda([this, Param]() -> FReply { SelectParam(Param); return FReply::Handled(); })
-				[
-					SNew(SMaterialParameterRow)
-					.ParamVM(Param)
-					.Session(Session)
-					.bSelected(bSel)
-					.bDetailMode(true)
-				]
+				SNew(SMaterialParameterRow)
+				.ParamVM(Param)
+				.Session(Session)
+				.bSelected(bSel)
+				.bDetailMode(true)
+				.OnClicked(FOnRowClicked::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::SelectParam))
 			];
 		}
 	}

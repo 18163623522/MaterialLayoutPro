@@ -36,6 +36,7 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 	Session = InArgs._Session;
 	bSelected = InArgs._bSelected;
 	bDetailMode = InArgs._bDetailMode;
+	OnClickedDelegate = InArgs._OnClicked;
 
 	if (!VM.IsValid())
 	{
@@ -162,6 +163,19 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 			]
 		]
 	];
+}
+
+FReply SMaterialParameterRow::OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+{
+	// Left-click anywhere on the row selects this parameter.
+	// Child widgets (editable text, value editors) capture their own clicks first,
+	// so this only fires for clicks on empty row areas — no conflict.
+	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+	{
+		OnClickedDelegate.ExecuteIfBound(VM);
+		return FReply::Handled();
+	}
+	return FReply::Unhandled();
 }
 
 TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
