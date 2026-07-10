@@ -211,10 +211,13 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 				FUIAction(
 					FExecuteAction::CreateLambda([]()
 					{
-						// Toggle the panel tab in ALL open material editors.
-						// Each editor has its own tab, so they work independently.
+						// Toggle the panel tab in the currently focused material editor.
+						// If we can't determine focus, toggle in all editors.
 						UAssetEditorSubsystem* AssetEditorSS = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
 						if (!AssetEditorSS) return;
+
+						TSharedPtr<SWindow> ActiveWindow = FSlateApplication::Get().GetActiveTopLevelWindow();
+						bool bHandled = false;
 
 						for (UObject* Asset : AssetEditorSS->GetAllEditedAssets())
 						{
@@ -223,12 +226,10 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 							if (!Instance) continue;
 
 							FAssetEditorToolkit* Toolkit = static_cast<FAssetEditorToolkit*>(Instance);
-							// Check if this editor's window is the focused one.
 							TSharedPtr<IToolkitHost> Host = Toolkit->GetToolkitHost();
 							if (!Host.IsValid()) continue;
 							TSharedRef<SWidget> HostWidget = Host->GetParentWidget();
 							TSharedPtr<SWindow> EditorWindow = FSlateApplication::Get().FindWidgetWindow(HostWidget);
-							TSharedPtr<SWindow> ActiveWindow = FSlateApplication::Get().GetActiveTopLevelWindow();
 
 							// If this is the focused editor, toggle its tab.
 							if (ActiveWindow == EditorWindow)
@@ -249,23 +250,27 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 										TM->TryInvokeTab(FMaterialLayoutProModule::EmbeddedTabId);
 									}
 								}
-								return;
+								bHandled = true;
+								break;
 							}
 						}
 
-						// Fallback: if no focused editor found, try all editors (covers edge cases).
-						for (UObject* Asset : AssetEditorSS->GetAllEditedAssets())
+						// Fallback: no focused editor found - try all material editors.
+						if (!bHandled)
 						{
-							if (!Asset || !Asset->IsA<UMaterialInterface>()) continue;
-							IAssetEditorInstance* Instance = AssetEditorSS->FindEditorForAsset(Asset, false);
-							if (!Instance) continue;
-							IMaterialEditor* MatEditor = static_cast<IMaterialEditor*>(Instance);
-							FMaterialLayoutProModule& Module = FModuleManager::GetModuleChecked<FMaterialLayoutProModule>("MaterialLayoutPro");
-							Module.RegisterEmbeddedSidebar(MatEditor);
-							FAssetEditorToolkit* Toolkit = static_cast<FAssetEditorToolkit*>(Instance);
-							if (TSharedPtr<FTabManager> TM = Toolkit->GetTabManager())
+							for (UObject* Asset : AssetEditorSS->GetAllEditedAssets())
 							{
-								TM->TryInvokeTab(FMaterialLayoutProModule::EmbeddedTabId);
+								if (!Asset || !Asset->IsA<UMaterialInterface>()) continue;
+								IAssetEditorInstance* Instance = AssetEditorSS->FindEditorForAsset(Asset, false);
+								if (!Instance) continue;
+								IMaterialEditor* MatEditor = static_cast<IMaterialEditor*>(Instance);
+								FMaterialLayoutProModule& Module = FModuleManager::GetModuleChecked<FMaterialLayoutProModule>("MaterialLayoutPro");
+								Module.RegisterEmbeddedSidebar(MatEditor);
+								FAssetEditorToolkit* Toolkit = static_cast<FAssetEditorToolkit*>(Instance);
+								if (TSharedPtr<FTabManager> TM = Toolkit->GetTabManager())
+								{
+									TM->TryInvokeTab(FMaterialLayoutProModule::EmbeddedTabId);
+								}
 							}
 						}
 					}),

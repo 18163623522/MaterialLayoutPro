@@ -1467,10 +1467,30 @@ FReply SMaterialLayoutProPanel::OnInstanceGroupClicked()
 {
 	// Ensure target is resolved (panel may be freshly created).
 	ResolveTargetMaterial();
-	if (!TargetMaterialInstance.IsValid()) return FReply::Handled();
+	if (!TargetMaterialInstance.IsValid())
+	{
+		// Show error window if no instance found.
+		TSharedRef<SWindow> Window = SNew(SWindow)
+			.Title(FText::FromString(TEXT("材质实例参数分组")))
+			.ClientSize(FVector2D(400, 100))
+			.SizingRule(ESizingRule::UserSized)
+			[
+				SNew(SBorder)
+				.Padding(FMargin(16))
+				.HAlign(HAlign_Center)
+				.VAlign(VAlign_Center)
+				[
+					SNew(STextBlock)
+					.Text(LOCTEXT("NoInstance", "未找到材质实例"))
+					.Font(FMLPTheme::FontBody())
+					.ColorAndOpacity(FMLPTheme::Muted())
+				]
+			];
+		FSlateApplication::Get().AddWindow(Window);
+		return FReply::Handled();
+	}
 
 	PullFromInstance();
-	if (InstanceParams.Num() == 0) return FReply::Handled();
 
 	// Default to first tab.
 	if (!InstanceTabNames.Contains(CurrentTab))
@@ -1480,7 +1500,7 @@ FReply SMaterialLayoutProPanel::OnInstanceGroupClicked()
 	TSharedRef<SWidget> Content = BuildInstanceContent();
 
 	TSharedRef<SWindow> Window = SNew(SWindow)
-		.Title(FText::FromString(TEXT("材质实例参数分组")))
+		.Title(FText::FromString(FString::Printf(TEXT("参数分组 - %s"), *TargetMaterialInstance->GetName())))
 		.ClientSize(FVector2D(600, 400))
 		.SizingRule(ESizingRule::UserSized)
 		[
