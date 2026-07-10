@@ -251,16 +251,6 @@ FReply SMaterialParameterRow::OnPreviewMouseButtonDown(const FGeometry& MyGeomet
 	return SCompoundWidget::OnPreviewMouseButtonDown(MyGeometry, MouseEvent);
 }
 
-FReply SMaterialParameterRow::OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
-{
-	// Plain left-click on empty row area (child widgets already consumed clicks on themselves).
-	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
-	{
-		OnClickedDelegate.ExecuteIfBound(VM, false, false);
-	}
-	return FReply::Unhandled();
-}
-
 FReply SMaterialParameterRow::OnMouseButtonDoubleClick(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
 	// Double-click jumps to the node in the material graph.
@@ -297,7 +287,10 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildDragHandle()
 				.Text(FText::FromString(TEXT("::")))
 				.Font(FMLPTheme::FontSmall())
 				.ColorAndOpacity_Lambda([this]() -> FSlateColor {
-					return bSelected ? FMLPTheme::Accent() : FMLPTheme::Muted();
+					bool bSel = bSelected;
+					if (IsSelectedQueryDelegate.IsBound() && VM.IsValid())
+						bSel = IsSelectedQueryDelegate.Execute(VM);
+					return bSel ? FMLPTheme::Accent() : FMLPTheme::Muted();
 				})
 			]
 		]
@@ -438,7 +431,20 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 #else
 						Args.InitialColorOverride = V->VectorValue;
 #endif
-						Args.OnColorCommitted = FOnLinearColorValueChanged::CreateLambda([this, V](FLinearColor NewColor) { OnVectorChanged(NewColor); });
+						// Capture weak ptrs - the row or VM may be destroyed if the panel
+						// is rebuilt while the color picker is open.
+						TWeakPtr<SMaterialParameterRow, ESPMode::NotThreadSafe> WeakRow = StaticCastSharedRef<SMaterialParameterRow>(AsShared());
+						TWeakPtr<FMLPParamVM, ESPMode::NotThreadSafe> WeakParam = V;
+						Args.OnColorCommitted = FOnLinearColorValueChanged::CreateLambda([WeakRow, WeakParam](FLinearColor NewColor) {
+							auto Row = WeakRow.Pin();
+							auto Param = WeakParam.Pin();
+							if (Row.IsValid() && Param.IsValid())
+							{
+								Param->VectorValue = NewColor;
+								Param->bDirty = true;
+								if (Row->Session.IsValid()) Row->Session->PushParamNow(Param);
+							}
+						});
 						OpenColorPicker(Args);
 						return FReply::Handled();
 					})
@@ -571,16 +577,6 @@ void SMaterialParameterRow::OnNameCommitted(const FText& NewText, ETextCommit::T
 			if (UMaterial* Mat = Session->TargetMaterial.Get()) { Mat->PostEditChange(); Mat->MarkPackageDirty(); }
 		}
 	}
-}
-
-FText SMaterialParameterRow::MakeDiagnosticTooltip() const
-{
-	if (!VM.IsValid()) return FText::GetEmpty();
-	FString Tip = FString::Printf(TEXT("Name: %s\nType: %d\nGroup: %s\nPriority: %d\nUsage: %s"),
-		*VM->Name.ToString(), static_cast<int32>(VM->Type), *VM->Group.ToString(), VM->SortPriority, *VM->GetUsageLabel().ToString());
-	if (VM->Usage == EMLPParameterUsage::Unused) Tip += TEXT("\n\n未连接到任何输出");
-	if (VM->bHasDuplicateName) Tip += TEXT("\n\n存在同名参数冲突");
-	return FText::FromString(Tip);
-}
+	}
 
 #undef LOCTEXT_NAMESPACE

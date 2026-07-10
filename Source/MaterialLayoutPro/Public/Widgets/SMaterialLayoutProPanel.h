@@ -54,8 +54,6 @@ private:
 
 	// --- Toolbar handlers ---
 	FReply OnRefreshClicked();
-	FReply OnSelectMaterialClicked();
-	FReply OnOpenMaterialEditorClicked();
 	FReply OnArchiveUnusedClicked();
 	FReply OnDeleteUnusedClicked();
 	FReply OnAutoGroupClicked();
@@ -64,7 +62,6 @@ private:
 	FReply OnSortWorkbenchClicked();
 	FReply OnParameterEditorClicked();
 	FReply OnGroupByCommentClicked();
-	FReply OnBulkRenameClicked();
 	FReply OnApplyChangesClicked();
 	FReply OnSetGroupForSelectionClicked();
 

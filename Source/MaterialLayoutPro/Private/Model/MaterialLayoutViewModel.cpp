@@ -41,8 +41,6 @@ void FMLPParamVM::PullFromExpression()
     else if (UMaterialExpressionVectorParameter* V = Cast<UMaterialExpressionVectorParameter>(Expr))
     {
         VectorValue = V->DefaultValue;
-        UE_LOG(LogTemp, Warning, TEXT("[MLP] Pull Vector '%s' = R=%.2f G=%.2f B=%.2f A=%.2f (type=%d)"),
-            *Name.ToString(), V->DefaultValue.R, V->DefaultValue.G, V->DefaultValue.B, V->DefaultValue.A, (int32)Type);
     }
     else if (UMaterialExpressionTextureSampleParameter* TS = Cast<UMaterialExpressionTextureSampleParameter>(Expr))
     {
@@ -150,7 +148,6 @@ void FMLPSession::PullAll()
     // Interaction lock: if a control is being edited, defer the refresh.
     if (InteractingCount > 0)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[MLP] PullAll: DEFERRED (InteractingCount=%d)"), InteractingCount);
         bPendingRefresh = true;
         return;
     }
@@ -158,16 +155,11 @@ void FMLPSession::PullAll()
     Groups.Reset();
 
     UMaterial* Mat = TargetMaterial.Get();
-    if (!Mat)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[MLP] PullAll: no TargetMaterial"));
-        return;
-    }
+    if (!Mat) return;
 
-    // Scan the material (reuse existing scanner — it's stable and tested).
+    // Scan the material (reuse existing scanner - it's stable and tested).
     TArray<TSharedPtr<FMLPParameterInfo>> Params = FMaterialParameterScanner::ScanMaterial(Mat);
     FMaterialParameterUsageAnalyzer::Analyze(Mat, Params);
-    UE_LOG(LogTemp, Warning, TEXT("[MLP] PullAll: Mat=%s, scanned %d params"), *Mat->GetName(), Params.Num());
 
     // Group parameters by their Group name.
     TMap<FName, int32> GroupIndexMap;

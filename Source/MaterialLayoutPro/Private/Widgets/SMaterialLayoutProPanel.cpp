@@ -9,14 +9,7 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionComment.h"
-#include "Materials/MaterialExpressionScalarParameter.h"
-#include "Materials/MaterialExpressionVectorParameter.h"
-#include "Materials/MaterialExpressionTextureSampleParameter.h"
-#include "Materials/MaterialExpressionTextureObjectParameter.h"
-#include "Materials/MaterialExpressionStaticBoolParameter.h"
-#include "Materials/MaterialExpressionStaticSwitchParameter.h"
 #include "Engine/Texture.h"
-#include "Widgets/SMaterialBulkRenameDialog.h"
 #include "Widgets/SMaterialSortWorkbench.h"
 #include "Widgets/SMaterialParameterEditor.h"
 
@@ -214,42 +207,35 @@ void SMaterialLayoutProPanel::Tick(const FGeometry& AllottedGeometry, double InC
 {
 	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
 
-	// --- Graph→Panel selection sync (every frame, cheap) ---
-	// When the user selects nodes in the material graph, highlight the matching row.
-	// Skip for a short cooldown after a panel→graph sync to avoid feedback loops.
-	if (OwningMaterialEditor.IsValid() && InCurrentTime > SyncCooldownUntil && SelectedParams.Num() <= 1)
+	// --- Graph→Panel selection sync ---
+	// Only clear panel selection when the graph has NO selected parameter nodes.
+	// We do NOT sync graph→panel for node selection: AddToSelection is additive,
+	// causing stale nodes to override the user's panel click after cooldown expires.
+	if (OwningMaterialEditor.IsValid() && InCurrentTime > SyncCooldownUntil)
 	{
 		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
 		if (Editor.IsValid() && Session.IsValid())
 		{
 			TSet<UObject*> GraphSelection = Editor->GetSelectedNodes();
-			TSharedPtr<FMLPParamVM> NewSel;
+			bool bHasParamSelected = false;
 			for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
 			{
 				for (const TSharedPtr<FMLPParamVM>& Param : Group->Parameters)
 				{
-					if (Param.IsValid() && Param->SourceExpression.IsValid())
+					if (Param.IsValid() && Param->SourceExpression.IsValid() &&
+						GraphSelection.Contains(Param->SourceExpression.Get()))
 					{
-						if (GraphSelection.Contains(Param->SourceExpression.Get()))
-						{
-							NewSel = Param;
-							break;
-						}
+						bHasParamSelected = true;
+						break;
 					}
 				}
-				if (NewSel.IsValid()) break;
+				if (bHasParamSelected) break;
 			}
-				if (NewSel.IsValid() && !IsSelected(NewSel))
-				{
-					SelectedParams.Reset();
-					SelectedParams.Add(NewSel);
-					LastSelectedParam = NewSel;
-				}
-				else if (!NewSel.IsValid() && SelectedParams.Num() > 0)
-				{
-					SelectedParams.Reset();
-					LastSelectedParam.Reset();
-				}
+			if (!bHasParamSelected && SelectedParams.Num() > 0)
+			{
+				SelectedParams.Reset();
+				LastSelectedParam.Reset();
+			}
 		}
 	}
 
@@ -379,24 +365,30 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bC
 	}
 	else if (bShift && LastSelectedParam.IsValid())
 	{
-		bool bFoundStart = false;
+		// Range select: flatten all params into a linear list, find LastSelectedParam
+		// and Param, select everything between them (inclusive).
+		TArray<TSharedPtr<FMLPParamVM>> AllParams;
 		for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
 		{
 			for (const TSharedPtr<FMLPParamVM>& P : Group->Parameters)
 			{
-				if (P == LastSelectedParam || P == Param)
-				{
-					if (!IsSelected(P)) SelectedParams.Add(P);
-					bFoundStart = true;
-					continue;
-				}
-				if (bFoundStart)
-				{
-					if (!IsSelected(P)) SelectedParams.Add(P);
-					if (P == Param) break;
-				}
+				AllParams.Add(P);
 			}
-			if (bFoundStart) break;
+		}
+		int32 StartIdx = AllParams.IndexOfByKey(LastSelectedParam);
+		int32 EndIdx = AllParams.IndexOfByKey(Param);
+		if (StartIdx != INDEX_NONE && EndIdx != INDEX_NONE)
+		{
+			if (StartIdx > EndIdx) Swap(StartIdx, EndIdx);
+			for (int32 i = StartIdx; i <= EndIdx; ++i)
+			{
+				if (!IsSelected(AllParams[i])) SelectedParams.Add(AllParams[i]);
+			}
+		}
+		else
+		{
+			// Fallback: just select the clicked param if anchor not found.
+			if (!IsSelected(Param)) SelectedParams.Add(Param);
 		}
 	}
 	else
@@ -742,23 +734,8 @@ FReply SMaterialLayoutProPanel::OnSetGroupForSelectionClicked()
 	return FReply::Handled();
 }
 
-FReply SMaterialLayoutProPanel::OnSelectMaterialClicked()
-{
-	UObject* O = TargetMaterial.IsValid() ? (UObject*)TargetMaterial.Get() : (TargetMaterialInstance.IsValid() ? (UObject*)TargetMaterialInstance.Get() : nullptr);
-	if (O) { TArray<FAssetData> A; A.Add(FAssetData(O)); auto& CB = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser"); CB.Get().SyncBrowserToAssets(A, true); }
-	return FReply::Handled();
-}
-
-FReply SMaterialLayoutProPanel::OnOpenMaterialEditorClicked()
-{
-	UObject* O = TargetMaterial.IsValid() ? (UObject*)TargetMaterial.Get() : (TargetMaterialInstance.IsValid() ? (UObject*)TargetMaterialInstance.Get() : nullptr);
-	if (O) GEditor->GetEditorSubsystem<UAssetEditorSubsystem>()->OpenEditorForAsset(O);
-	return FReply::Handled();
-}
-
 FReply SMaterialLayoutProPanel::OnArchiveUnusedClicked()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnArchiveUnusedClicked: TargetMaterial valid=%d"), TargetMaterial.IsValid());
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
 	const auto* S = GetDefault<UMaterialLayoutProSettings>();
 	const FName Dep(S ? *S->DeprecatedGroupName : TEXT("Deprecated"));
@@ -769,14 +746,12 @@ FReply SMaterialLayoutProPanel::OnArchiveUnusedClicked()
 	int32 Archived = 0;
 	for (auto& P : Params) if (P->Usage == EMLPParameterUsage::Unused)
 		if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E->Modify(); E->Group = Dep; ++Archived; }
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnArchiveUnused: scanned=%d archived=%d -> %s"), Params.Num(), Archived, *Dep.ToString());
 	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
 	return FReply::Handled();
 }
 
 FReply SMaterialLayoutProPanel::OnDeleteUnusedClicked()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnDeleteUnusedClicked: TargetMaterial valid=%d"), TargetMaterial.IsValid());
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
 	const FScopedTransaction T(LOCTEXT("DU","删除未使用的参数"));
 	auto* M = TargetMaterial.Get(); M->Modify();
@@ -792,17 +767,14 @@ FReply SMaterialLayoutProPanel::OnDeleteUnusedClicked()
 #endif
 		++Deleted;
 	}
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnDeleteUnused: scanned=%d deleted=%d"), Params.Num(), Deleted);
 	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
 	return FReply::Handled();
 }
 
 FReply SMaterialLayoutProPanel::OnAutoGroupClicked()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnAutoGroupClicked: TargetMaterial valid=%d"), TargetMaterial.IsValid());
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
 	const auto* S = GetDefault<UMaterialLayoutProSettings>();
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnAutoGroup: Settings=%p rules=%d"), S, S ? S->AutoGroupRules.Num() : -1);
 	if (!S) return FReply::Handled();
 	const FScopedTransaction T(LOCTEXT("AG","自动分组参数"));
 	auto* M = TargetMaterial.Get(); M->Modify();
@@ -811,17 +783,17 @@ FReply SMaterialLayoutProPanel::OnAutoGroupClicked()
 	for (auto& P : Params) { if (!P.IsValid()) continue; const FString N = P->Name.ToString();
 		for (const auto& R : S->AutoGroupRules) if (N.StartsWith(R.Prefix)) {
 			if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E->Modify(); E->Group = FName(*R.Group); ++Grouped; } break; } }
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnAutoGroup: scanned=%d grouped=%d"), Params.Num(), Grouped);
 	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
 	return FReply::Handled();
 }
 
 FReply SMaterialLayoutProPanel::OnGroupByCommentClicked()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnGroupByCommentClicked: TargetMaterial valid=%d"), TargetMaterial.IsValid());
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
 	auto* M = TargetMaterial.Get(); const FScopedTransaction T(LOCTEXT("GBC","按注释分组参数"));
 	M->Modify();
+	// Scan once - reuse for all comment boxes.
+	auto Params = FMaterialParameterScanner::ScanMaterial(M);
 #if ENGINE_MAJOR_VERSION >= 5
 	for (UMaterialExpression* E : M->GetExpressions())
 #else
@@ -832,23 +804,12 @@ FReply SMaterialLayoutProPanel::OnGroupByCommentClicked()
 		FString Title = C->Text; Title.TrimStartAndEndInline(); if (Title.IsEmpty()) continue;
 		Title.ReplaceInline(TEXT(" "),TEXT("_")); Title.ReplaceInline(TEXT("-"),TEXT("_")); FName GN(*Title);
 		const FVector2D Min(C->MaterialExpressionEditorX,C->MaterialExpressionEditorY), Max(C->MaterialExpressionEditorX+C->SizeX,C->MaterialExpressionEditorY+C->SizeY);
-		auto Params = FMaterialParameterScanner::ScanMaterial(M);
 		for (auto& P : Params) { if (!P.IsValid()||!P->Expression.IsValid()) continue;
 			const FVector2D Pos(P->Expression->MaterialExpressionEditorX,P->Expression->MaterialExpressionEditorY);
 			if (Pos.X>=Min.X&&Pos.X<=Max.X&&Pos.Y>=Min.Y&&Pos.Y<=Max.Y)
 				if (auto* E2 = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E2->Modify(); E2->Group = GN; } }
 	}
 	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
-	return FReply::Handled();
-}
-
-FReply SMaterialLayoutProPanel::OnBulkRenameClicked()
-{
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnBulkRenameClicked: TargetMaterial valid=%d"), TargetMaterial.IsValid());
-	if (!TargetMaterial.IsValid()) return FReply::Handled();
-	auto Params = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
-	FSlateApplication::Get().AddWindow(SNew(SMaterialBulkRenameDialog).TargetMaterial(TargetMaterial).Parameters(Params)
-		.OnRenamed(FSimpleDelegate::CreateLambda([this](){ RefreshParameters(); })));
 	return FReply::Handled();
 }
 
@@ -930,17 +891,7 @@ FText SMaterialLayoutProPanel::GetTargetMaterialName() const
 FText SMaterialLayoutProPanel::GetStatusText() const
 {
 	if (!TargetMaterial.IsValid() && !TargetMaterialInstance.IsValid()) return LOCTEXT("NS","未选择材质");
-	if (!Session.IsValid() || Session->Groups.Num() == 0)
-	{
-		// Diagnostic: distinguish scanner-found-0 from VM-built-0.
-		int32 Scanned = 0;
-		if (TargetMaterial.IsValid())
-		{
-			TArray<TSharedPtr<FMLPParameterInfo>> Params = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
-			Scanned = Params.Num();
-		}
-		return FText::FromString(FString::Printf(TEXT("[diag] 扫描=%d 组=%d 锁=%d"), Scanned, Session.IsValid() ? Session->Groups.Num() : -1, Session.IsValid() ? Session->InteractingCount : -1));
-	}
+	if (!Session.IsValid() || Session->Groups.Num() == 0) return LOCTEXT("NP2","未找到参数");
 
 	int32 Total = 0;
 	for (const auto& G : Session->Groups) if (G.IsValid()) Total += G->Parameters.Num();

@@ -39,7 +39,6 @@ public:
 
 	/** Preview - fires BEFORE child widgets. Intercept Ctrl/Shift+click for multi-select. */
 	virtual FReply OnPreviewMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
-	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
 	virtual FReply OnMouseButtonDoubleClick(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
 	virtual FReply OnDragDetected(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
 
@@ -73,6 +72,4 @@ private:
 	void OnGroupCommitted(const FText& NewText, ETextCommit::Type CommitType);
 	void OnPriorityCommitted(int32 NewValue, ETextCommit::Type CommitType);
 	void OnNameCommitted(const FText& NewText, ETextCommit::Type CommitType);
-
-	FText MakeDiagnosticTooltip() const;
 };
