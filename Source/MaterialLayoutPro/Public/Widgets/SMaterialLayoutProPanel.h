@@ -105,4 +105,7 @@ private:
 
 	// --- Polling (standalone mode) ---
 	TOptional<double> LastPollTime;
+
+	// --- Selection sync guard (prevents panel↔graph feedback loops) ---
+	bool bSyncingSelection = false;
 };

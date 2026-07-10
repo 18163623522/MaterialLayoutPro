@@ -214,8 +214,42 @@ void SMaterialLayoutProPanel::Tick(const FGeometry& AllottedGeometry, double InC
 {
 	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
 
-	// Standalone mode: poll every ~0.5s for an open material editor.
-	// (Embedded mode binds directly and doesn't need polling.)
+	// --- Graph→Panel selection sync (every frame, cheap) ---
+	// When the user selects nodes in the material graph, highlight the matching row.
+	if (OwningMaterialEditor.IsValid() && !bSyncingSelection)
+	{
+		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
+		if (Editor.IsValid() && Session.IsValid())
+		{
+			TSet<UObject*> GraphSelection = Editor->GetSelectedNodes();
+			TSharedPtr<FMLPParamVM> NewSel;
+			// Find the first VM whose source expression is in the graph selection.
+			for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
+			{
+				for (const TSharedPtr<FMLPParamVM>& Param : Group->Parameters)
+				{
+					if (Param.IsValid() && Param->SourceExpression.IsValid())
+					{
+						UObject* Expr = Param->SourceExpression.Get();
+						if (GraphSelection.Contains(Expr))
+						{
+							NewSel = Param;
+							break;
+						}
+					}
+				}
+				if (NewSel.IsValid()) break;
+			}
+			// Only update if the selection actually changed (avoids rebuilding every frame).
+			if (NewSel != SelectedParam && !(NewSel.IsValid() && NewSel == SelectedParam))
+			{
+				SelectedParam = NewSel;
+				RebuildTree();
+			}
+		}
+	}
+
+	// --- Editor binding poll (every ~0.5s) ---
 	if (LastPollTime.IsSet() && InCurrentTime - LastPollTime.GetValue() < 0.5)
 	{
 		return;
@@ -228,15 +262,12 @@ void SMaterialLayoutProPanel::Tick(const FGeometry& AllottedGeometry, double InC
 		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
 		if (!Editor.IsValid() || !Editor->GetMaterialInterface())
 		{
-			// Editor closed or asset swapped out from under us — re-resolve.
 			OwningMaterialEditor.Reset();
 			ResolveTargetMaterial();
 			RefreshParameters();
 		}
 		else
 		{
-			// Still valid; check if the edited material changed (user opened a different material
-			// in the same editor window — rare but possible).
 			UMaterialInterface* MatInterface = Editor->GetMaterialInterface();
 			UMaterial* CurrentMat = Cast<UMaterial>(MatInterface);
 			if (!CurrentMat) CurrentMat = Cast<UMaterialInstance>(MatInterface) ? Cast<UMaterialInstance>(MatInterface)->GetBaseMaterial() : nullptr;
@@ -248,7 +279,6 @@ void SMaterialLayoutProPanel::Tick(const FGeometry& AllottedGeometry, double InC
 	}
 	else
 	{
-		// Not bound yet — try to find an open material editor.
 		UMaterial* OldMat = TargetMaterial.Get();
 		ResolveTargetMaterial();
 		if (TargetMaterial.IsValid() && TargetMaterial.Get() != OldMat)
@@ -327,6 +357,21 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param)
 {
 	SelectedParam = Param;
 	RebuildTree();
+
+	// Sync selection to the material graph: highlight + jump to the node.
+	// Guard against feedback loops: Tick (graph→panel) also sets selection.
+	if (Param.IsValid() && Param->SourceExpression.IsValid() && OwningMaterialEditor.IsValid() && !bSyncingSelection)
+	{
+		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
+		if (Editor.IsValid())
+		{
+			UMaterialExpression* Expr = Param->SourceExpression.Get();
+			bSyncingSelection = true;
+			Editor->AddToSelection(Expr);
+			Editor->JumpToExpression(Expr);
+			bSyncingSelection = false;
+		}
+	}
 }
 
 void SMaterialLayoutProPanel::OnSearchChanged(const FText& NewText)
