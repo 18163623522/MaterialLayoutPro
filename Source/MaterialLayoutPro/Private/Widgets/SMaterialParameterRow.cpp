@@ -222,13 +222,15 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 		return SNew(SHorizontalBox)
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
 			[
-				SNew(SBox).WidthOverride(24.f).HeightOverride(16.f)
+				SNew(SBox).WidthOverride(28.f).HeightOverride(16.f)
 				[
-					SNew(SColorBlock)
-					.Color_Lambda([WeakVM]() -> FLinearColor {
+					SNew(SBorder)
+					.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+					.BorderBackgroundColor_Lambda([WeakVM]() -> FLinearColor {
 						if (auto V = WeakVM.Pin()) return V->VectorValue;
 						return FLinearColor::White;
 					})
+					.Padding(0.f)
 					.OnMouseButtonDown_Lambda([this, WeakVM](const FGeometry&, const FPointerEvent& MouseEvent) -> FReply {
 						if (MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) return FReply::Unhandled();
 						auto V = WeakVM.Pin();
