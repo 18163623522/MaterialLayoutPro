@@ -296,15 +296,13 @@ void SMaterialInstanceGroupPanel::BuildRows(TSharedRef<SScrollBox> ContentBox)
 		TWeakPtr<FMLPInstanceParamVM> WeakVM = P;
 
 		// --- Value editor built per type ---
-		// Each editor writes back through OnInstanceScalarChanged / OnInstanceVectorChanged /
-		// OnInstanceTextureChanged / OnInstanceBoolChanged, which update the instance's
-		// override array AND call RebuildInstanceContent() so the row reflects the new value.
+		// All editors are ALWAYS editable (UE-native details-panel behavior): editing a value
+		// when the param isn't overridden auto-enables the override in the commit handler.
+		// The override checkbox on the left is just an indicator + manual un-override toggle.
 		TSharedRef<SWidget> ValueEditor = [WeakSelf, WeakVM]() -> TSharedRef<SWidget>
 		{
 			auto V = WeakVM.Pin();
 			if (!V.IsValid()) return SNew(STextBlock).Text(FText::GetEmpty());
-
-			const bool bEditable = V->bOverridden;
 
 			switch (V->Type)
 			{
@@ -316,15 +314,18 @@ void SMaterialInstanceGroupPanel::BuildRows(TSharedRef<SScrollBox> ContentBox)
 				return SNew(SNumericEntryBox<float>)
 					.Value_Lambda([WeakV2]() -> TOptional<float> {
 						auto V2 = WeakV2.Pin();
-						if (!V2.IsValid() || !V2->bOverridden) return TOptional<float>();
+						// Always show a value — when not overridden, show the inherited default
+						// (PullFromInstance already fills ScalarValue with the base material default).
+						// This lets the user edit directly; OnInstanceScalarChanged auto-enables
+						// override on commit (UE-native details-panel behavior).
+						if (!V2.IsValid()) return TOptional<float>();
 						return TOptional<float>(V2->ScalarValue);
 					})
 					.Font(FMLPTheme::FontSmall())
-					.AllowSpin(bEditable)
+					.AllowSpin(true)
 					.MinValue(TOptional<float>()).MaxValue(TOptional<float>())
 					.MinSliderValue(TOptional<float>()).MaxSliderValue(TOptional<float>())
 					.MinDesiredValueWidth(80.f)
-					.IsEnabled(bEditable)
 					// Live update during spinner drag — just updates the VM value without
 					// rebuilding (rebuilding would steal focus from the spinner).
 					.OnValueChanged_Lambda([WeakV2](float NewVal) {
@@ -344,9 +345,9 @@ void SMaterialInstanceGroupPanel::BuildRows(TSharedRef<SScrollBox> ContentBox)
 			case (int32)EMLPParameterType::Vector:
 			{
 				auto WeakV2 = WeakVM;
-				// Color swatch (click opens picker) + RGBA text. Disabled when not overridden.
+				// Color swatch (click opens picker) + RGBA text. Always editable; editing
+				// auto-enables override via OnInstanceVectorChanged.
 				return SNew(SHorizontalBox)
-					.IsEnabled(bEditable)
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
 					[
 						SNew(SBox).WidthOverride(28.f).HeightOverride(16.f)
@@ -400,9 +401,9 @@ void SMaterialInstanceGroupPanel::BuildRows(TSharedRef<SScrollBox> ContentBox)
 			}
 			case (int32)EMLPParameterType::Texture:
 			{
-				// Click button -> Content Browser asset picker. Disabled when not overridden.
+				// Click button -> Content Browser asset picker. Always editable; selecting an
+				// asset auto-enables override via OnInstanceTextureChanged.
 				return SNew(SButton)
-					.IsEnabled(bEditable)
 					.Text_Lambda([WeakVM]() -> FText {
 						auto V = WeakVM.Pin();
 						if (V.IsValid() && V->TextureValue.IsValid())
@@ -443,10 +444,10 @@ void SMaterialInstanceGroupPanel::BuildRows(TSharedRef<SScrollBox> ContentBox)
 			case (int32)EMLPParameterType::StaticBool:
 			case (int32)EMLPParameterType::StaticSwitch:
 			{
-				// Checkbox toggles bool value; disabled when not overridden.
+				// Checkbox toggles bool value; always clickable, editing auto-enables override
+				// via OnInstanceBoolChanged -> SetStaticSwitchOverride.
 				auto WeakV2 = WeakVM;
 				return SNew(SCheckBox)
-					.IsEnabled(bEditable)
 					.IsChecked_Lambda([WeakV2]() -> ECheckBoxState {
 						auto V2 = WeakV2.Pin();
 						if (!V2.IsValid()) return ECheckBoxState::Unchecked;
@@ -734,7 +735,9 @@ void SMaterialInstanceGroupPanel::OnInstanceBoolChanged(TSharedPtr<FMLPInstanceP
 	Param->BoolValue = bNewValue;
 	// Static switch parameters live in StaticParameters.StaticSwitchParameters, not the typed
 	// value arrays. Update via UpdateStaticPermutation so the permutation recompiles.
-	SetStaticSwitchOverride(Param, Param->bOverridden, bNewValue);
+	// The value control is always editable now (auto-override), so always enable the override
+	// when the user changes the value — same behavior as the scalar/vector/texture handlers.
+	SetStaticSwitchOverride(Param, true, bNewValue);
 }
 
 void SMaterialInstanceGroupPanel::SetStaticSwitchOverride(TSharedPtr<FMLPInstanceParamVM> Param, bool bOverride, bool bNewValue)
