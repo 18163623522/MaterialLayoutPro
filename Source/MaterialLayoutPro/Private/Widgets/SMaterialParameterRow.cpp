@@ -226,11 +226,17 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 				[
 					SNew(SBorder)
 					.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-					.BorderBackgroundColor_Lambda([WeakVM]() -> FLinearColor {
-						if (auto V = WeakVM.Pin()) return V->VectorValue;
-						return FLinearColor::White;
-					})
+					// Use a solid color via the content, not the border — border tints can be
+					// overridden by child widget transparency. A plain SImage renders the color directly.
 					.Padding(0.f)
+					[
+						SNew(SImage)
+						.Image(FCoreStyle::Get().GetBrush("WhiteBrush"))
+						.ColorAndOpacity_Lambda([WeakVM]() -> FLinearColor {
+							if (auto V = WeakVM.Pin()) return V->VectorValue;
+							return FLinearColor::White;
+						})
+					]
 					.OnMouseButtonDown_Lambda([this, WeakVM](const FGeometry&, const FPointerEvent& MouseEvent) -> FReply {
 						if (MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) return FReply::Unhandled();
 						auto V = WeakVM.Pin();
