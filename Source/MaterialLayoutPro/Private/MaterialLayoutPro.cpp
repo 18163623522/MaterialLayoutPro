@@ -2,6 +2,7 @@
 #include "Style/MaterialLayoutProStyle.h"
 #include "Commands/MaterialLayoutProCommands.h"
 #include "Widgets/SMaterialLayoutProPanel.h"
+#include "Widgets/SMaterialInstanceGroupPanel.h"
 
 #include "Modules/ModuleManager.h"
 #include "Editor.h"
@@ -330,10 +331,10 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 							TSharedPtr<SWindow> EditorWindow = FSlateApplication::Get().FindWidgetWindow(HostWidget);
 							if (ActiveWindow != EditorWindow) continue;
 
-							// Create the panel widget and open it in a window.
-							TSharedRef<SMaterialLayoutProPanel> Panel = SNew(SMaterialLayoutProPanel)
-								.OwningMaterialEditor(StaticCastSharedRef<IMaterialEditor>(Toolkit->AsShared()));
-							Panel->OnInstanceGroupClicked();
+							// Open the instance group window. OpenInstanceGroupWindow puts the
+							// SMaterialInstanceGroupPanel as the window content so it stays alive
+							// for the window's lifetime (previous code leaked a dead panel).
+							FMaterialLayoutProModule::OpenInstanceGroupWindow(MI);
 							return;
 						}
 					}),
@@ -370,6 +371,31 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 
 	IMaterialEditorModule& MaterialEditorModule = IMaterialEditorModule::Get();
 	MaterialEditorModule.GetToolBarExtensibilityManager()->AddExtender(MaterialEditorToolbarExtender);
+}
+
+// ============================================================================
+// Material Instance group window
+// ============================================================================
+
+TSharedPtr<SWindow> FMaterialLayoutProModule::OpenInstanceGroupWindow(UMaterialInstance* MI)
+{
+	if (!MI) return nullptr;
+
+	TSharedRef<SWindow> Window = SNew(SWindow)
+		.Title(FText::FromString(FString::Printf(TEXT("参数分组 - %s"), *MI->GetName())))
+		.ClientSize(FVector2D(600, 400))
+		.SizingRule(ESizingRule::UserSized)
+		// The window content IS the panel widget itself — this is what keeps the panel alive
+		// for the window's whole lifetime. Previous code put a loose child SVerticalBox as
+		// content and let the owning panel get destroyed, so every tab/override callback
+		// resolved to a dead weak ptr and silently did nothing.
+		[
+			SNew(SMaterialInstanceGroupPanel)
+			.TargetInstance(MI)
+		];
+
+	FSlateApplication::Get().AddWindow(Window);
+	return Window;
 }
 
 // ============================================================================

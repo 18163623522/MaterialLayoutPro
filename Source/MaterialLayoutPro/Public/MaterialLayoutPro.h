@@ -9,6 +9,8 @@
 class IMaterialEditor;
 class IAssetEditorInstance;
 class SDockTab;
+class SWindow;
+class UMaterialInstance;
 
 class FMaterialLayoutProModule : public IModuleInterface
 {
@@ -19,6 +21,12 @@ public:
 
 	/** Tab id of the embedded sidebar inside each Material Editor window. */
 	static const FName EmbeddedTabId;
+
+	/** Open the standalone "material instance parameter group" window for the given instance.
+	 *  The window holds a strong ref to the SMaterialInstanceGroupPanel widget as its content,
+	 *  so the widget lives exactly as long as the window — this is what makes the panel's
+	 *  tab/override/value callbacks safe to fire. Returns the created window (or null if MI is null). */
+	static TSharedPtr<SWindow> OpenInstanceGroupWindow(UMaterialInstance* MI);
 
 private:
 	void RegisterStyle();

@@ -11,22 +11,6 @@ class FMLPSession;
 struct FMLPParamVM;
 class SEditableTextBox;
 class SVerticalBox;
-class SScrollBox;
-
-/** A single parameter in instance mode: name + type + group + override state + value. */
-struct FMLPInstanceParamVM
-{
-	FName Name;
-	FName Group;
-	FGuid ExpressionGUID;
-	int32 Type = 0;  // EMLPParameterType
-	bool bOverridden = false;
-
-	float ScalarValue = 0.f;
-	FLinearColor VectorValue = FLinearColor::White;
-	TSoftObjectPtr<UTexture> TextureValue;
-	bool BoolValue = false;
-};
 
 class MATERIALLAYOUTPRO_API SMaterialLayoutProPanel : public SCompoundWidget
 {
@@ -84,30 +68,10 @@ private:
 	FReply OnApplyChangesClicked();
 	FReply OnSetGroupForSelectionClicked();
 
-	// --- Instance mode (tabbed group panel) ---
-	void PullFromInstance();
-	TSharedRef<SWidget> BuildInstanceContent();
-	/** Refresh the instance panel content (tab bar + current tab rows) in-place.
-	  * Called by every instance-mode handler instead of RebuildTree(), which only
-	  * rebuilds the material-parameter tree and would leave the instance window stale. */
-	void RebuildInstanceContent();
-	/** Build just the tab bar row (tabs + [+] button). */
-	TSharedRef<SWidget> BuildInstanceTabBar();
-	/** Build just the parameter rows for the current tab. Each row has a type-matched
-	  * editable value control (SNumericEntryBox / color picker / asset picker / checkbox). */
-	void BuildInstanceRows(TSharedRef<SScrollBox> ContentBox);
-	FReply OnTabClicked(FName GroupName);
-	FReply OnAddTabClicked();
-	void OnRenameTab(FName OldName, const FText& NewName, ETextCommit::Type);
-	void OnDeleteTab(FName GroupName);
-	void OnToggleOverride(TSharedPtr<FMLPInstanceParamVM> Param);
-	void OnInstanceScalarChanged(TSharedPtr<FMLPInstanceParamVM> Param, float NewValue, ETextCommit::Type);
-	void OnInstanceVectorChanged(TSharedPtr<FMLPInstanceParamVM> Param, FLinearColor NewColor);
-	void OnInstanceTextureChanged(TSharedPtr<FMLPInstanceParamVM> Param, UObject* NewTexture);
-	void OnInstanceBoolChanged(TSharedPtr<FMLPInstanceParamVM> Param, bool bNewValue);
-	/** Set a static-switch override value on the instance (add/update/remove entry in
-	  * StaticParameters.StaticSwitchParameters). Requires UpdateStaticPermutation. */
-	void SetStaticSwitchOverride(TSharedPtr<FMLPInstanceParamVM> Param, bool bOverride, bool bNewValue);
+	// NOTE: instance-mode (tabbed group panel) build/edit logic has moved to
+	// SMaterialInstanceGroupPanel, which is a self-contained widget placed as the window
+	// content so its lifetime == window lifetime. This panel only keeps OnInstanceGroupClicked
+	// (the toolbar trigger) which delegates to FMaterialLayoutProModule::OpenInstanceGroupWindow.
 
 	// --- Data ---
 	TSharedPtr<FMLPSession> Session;
@@ -131,12 +95,4 @@ private:
 	// --- Polling ---
 	TOptional<double> LastPollTime;
 	double SyncCooldownUntil = 0.0;
-
-	// --- Instance mode state ---
-	bool bInstanceMode = false;
-	FName CurrentTab;
-	TArray<TSharedPtr<FMLPInstanceParamVM>> InstanceParams;
-	TArray<FName> InstanceTabNames;
-	TSharedPtr<SVerticalBox> InstanceContentContainer;
-	TSharedPtr<SEditableTextBox> NewTabInput;
 };
