@@ -54,16 +54,20 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 		? FMLPTheme::Destructive()
 		: (VM->bHasDuplicateName ? FMLPTheme::Warning() : FMLPTheme::Foreground());
 
-	// Transparent editable-text-box style (default has a white background).
-	static FEditableTextBoxStyle TransparentStyle;
+	// Editable-text-box style: nearly transparent normally, light gray on hover/focus
+	// so users can tell these fields are editable (not plain labels).
+	static FEditableTextBoxStyle EditableStyle;
 	static bool bStyleInit = false;
 	if (!bStyleInit)
 	{
-		TransparentStyle = FCoreStyle::Get().GetWidgetStyle<FEditableTextBoxStyle>("NormalEditableTextBox");
-		TransparentStyle.BackgroundImageNormal.TintColor = FSlateColor(FLinearColor::Transparent);
-		TransparentStyle.BackgroundImageHovered.TintColor = FSlateColor(FLinearColor::Transparent);
-		TransparentStyle.BackgroundImageFocused.TintColor = FSlateColor(FLinearColor::Transparent);
-		TransparentStyle.Padding = FMargin(0.f);
+		EditableStyle = FCoreStyle::Get().GetWidgetStyle<FEditableTextBoxStyle>("NormalEditableTextBox");
+		// Normal: very subtle tint so the field is barely visible but hints it's interactive.
+		EditableStyle.BackgroundImageNormal.TintColor = FSlateColor(FLinearColor(1.f, 1.f, 1.f, 0.04f));
+		// Hover: clearly visible light background — "you can click me".
+		EditableStyle.BackgroundImageHovered.TintColor = FSlateColor(FLinearColor(1.f, 1.f, 1.f, 0.12f));
+		// Focused: slightly stronger so the active field is obvious.
+		EditableStyle.BackgroundImageFocused.TintColor = FSlateColor(FLinearColor(0.039f, 0.561f, 0.890f, 0.15f));
+		EditableStyle.Padding = FMargin(2.f, 1.f);
 		bStyleInit = true;
 	}
 
@@ -95,17 +99,17 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 				]
 			]
 
-			// Name (editable) — transparent background so it blends with the row.
+			// Name (editable) — hover/focus highlights to show it's editable.
 			+ SHorizontalBox::Slot().FillWidth(0.30f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
 			[
 				SNew(SEditableTextBox)
-				.Style(&TransparentStyle)
+				.Style(&EditableStyle)
 				.Text(FText::FromName(VM->Name))
 				.Font(FMLPTheme::FontBody())
 				.ForegroundColor(NameColor)
 				.SelectAllTextWhenFocused(true)
 				.OnTextCommitted(this, &SMaterialParameterRow::OnNameCommitted)
-				.ToolTipText(MakeDiagnosticTooltip())
+				.ToolTipText(FText::FromString(TEXT("点击编辑参数名")))
 			]
 
 			// Value editor
@@ -114,17 +118,18 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 				BuildValueEditor()
 			]
 
-			// Group (editable, detail mode) — transparent background.
+			// Group (editable, detail mode) — hover/focus highlights to show it's editable.
 			+ SHorizontalBox::Slot().FillWidth(0.20f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
 			[
 				bDetailMode
 					? StaticCastSharedRef<SWidget>(
 						SNew(SEditableTextBox)
-						.Style(&TransparentStyle)
+						.Style(&EditableStyle)
 						.Text(FText::FromName(VM->Group))
 						.Font(FMLPTheme::FontSmall())
 						.ForegroundColor(FMLPTheme::Muted())
-						.OnTextCommitted(this, &SMaterialParameterRow::OnGroupCommitted))
+						.OnTextCommitted(this, &SMaterialParameterRow::OnGroupCommitted)
+						.ToolTipText(FText::FromString(TEXT("点击编辑分组"))))
 					: StaticCastSharedRef<SWidget>(SNew(SBox))
 			]
 
