@@ -230,23 +230,14 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 FReply SMaterialParameterRow::OnPreviewMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
 	// Preview fires BEFORE child widgets.
-	// For Ctrl/Shift: intercept and consume (multi-select only).
-	// For plain clicks: fire selection then fall through to children.
-	// This is safe because SelectParam no longer calls RebuildTree() - it just updates
-	// the selection array, and the row background is driven by a dynamic IsSelected query.
+	// Fire selection for ALL clicks (plain, Ctrl, Shift), then always fall through
+	// to children so text boxes / value editors still receive focus and can be edited.
+	// This is safe because SelectParam no longer calls RebuildTree().
 	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
 		const bool bCtrl = MouseEvent.IsControlDown();
 		const bool bShift = MouseEvent.IsShiftDown();
-
-		if (bCtrl || bShift)
-		{
-			OnClickedDelegate.ExecuteIfBound(VM, bCtrl, bShift);
-			return FReply::Handled();
-		}
-
-		// Plain click: fire selection, then fall through (don't consume).
-		OnClickedDelegate.ExecuteIfBound(VM, false, false);
+		OnClickedDelegate.ExecuteIfBound(VM, bCtrl, bShift);
 	}
 	return SCompoundWidget::OnPreviewMouseButtonDown(MyGeometry, MouseEvent);
 }
