@@ -137,6 +137,12 @@ public:
      *  refresh their node UI / details panel (NotifyExternalMaterialChange). */
     FOnMaterialChangedBySession& OnMaterialChanged() { return MaterialChangedDelegate; }
 
+    /** Manually fire the OnMaterialChanged broadcast. Used by callers that write to the
+     *  material directly (not via PushParamNow/PushDirty) but still want bound editors to be
+     *  notified — e.g. SMaterialParameterRow::OnNameCommitted renames the expression's
+     *  ParameterName in place and needs the editor to sync preview→OriginalMaterial. */
+    void BroadcastMaterialChanged() { MaterialChangedDelegate.Broadcast(); }
+
 private:
     FOnMaterialChangedBySession MaterialChangedDelegate;
 };

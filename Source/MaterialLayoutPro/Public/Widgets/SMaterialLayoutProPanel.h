@@ -33,6 +33,15 @@ private:
 	void OnSelectionChanged(UObject* Selection);
 	void ResolveTargetMaterial();
 
+	/** Notify the bound material editor that the material's expressions changed externally
+	  * (group/sort/value edits made by this panel directly on Material->Expressions). This is
+	  * REQUIRED for changes to persist: the material editor edits a transient preview copy
+	  * (FMaterialEditor::Material) and only copies it back to the on-disk OriginalMaterial when
+	  * its internal bMaterialDirty flag is set. Calling UpdateMaterialAfterGraphChange() sets
+	  * that flag (via SetMaterialDirty), so a subsequent Ctrl+S / close actually saves the
+	  * edits. Without this, edits appear to apply but are silently lost on save/reopen. */
+	void NotifyMaterialEditorChanged();
+
 	TSharedRef<SWidget> BuildToolbar();
 	TSharedRef<SWidget> BuildStatusBar();
 	void RefreshParameters();

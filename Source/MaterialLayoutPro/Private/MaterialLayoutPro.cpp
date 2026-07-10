@@ -518,6 +518,35 @@ void FMaterialLayoutProModule::OnSyncCommentToGroup(FMenuBuilder& MenuBuilder, c
 
 			Material->PostEditChange();
 			Material->MarkPackageDirty();
+
+			// This runs in the material editor's right-click menu, so the editor owning this
+			// material is currently open. Notify it so the Group edit syncs from the preview copy
+			// onto OriginalMaterial — otherwise it's lost on save/reopen (see notes in
+			// SMaterialLayoutProPanel::NotifyMaterialEditorChanged).
+			//
+			// NOTE: `Material` here is MaterialGraph->Material, which is the editor's transient
+			// PREVIEW copy — it is NOT registered with AssetEditorSubsystem (only OriginalMaterial
+			// is). So FindEditorForAsset(Material) returns null. We instead match the editor by
+			// pointer-comparing its GetMaterialInterface() (which returns the preview copy too).
+			if (GEditor)
+			{
+				if (UAssetEditorSubsystem* AssetEditorSS = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
+				{
+					for (UObject* EditedAsset : AssetEditorSS->GetAllEditedAssets())
+					{
+						if (!EditedAsset || !EditedAsset->IsA<UMaterialInterface>()) continue;
+						if (IAssetEditorInstance* EditorInst = AssetEditorSS->FindEditorForAsset(EditedAsset, false))
+						{
+							IMaterialEditor* MatEditor = static_cast<IMaterialEditor*>(EditorInst);
+							if (MatEditor->GetMaterialInterface() == Material)
+							{
+								MatEditor->UpdateMaterialAfterGraphChange();
+								break;
+							}
+						}
+					}
+				}
+			}
 		}));
 }
 

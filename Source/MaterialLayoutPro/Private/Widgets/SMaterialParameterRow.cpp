@@ -566,6 +566,10 @@ void SMaterialParameterRow::OnNameCommitted(const FText& NewText, ETextCommit::T
 			const FScopedTransaction Transaction(FText::FromString(TEXT("重命名材质参数")));
 			ParamExpr->Modify(); ParamExpr->ParameterName = NewName; VM->Name = NewName;
 			if (UMaterial* Mat = Session->TargetMaterial.Get()) { Mat->PostEditChange(); Mat->MarkPackageDirty(); }
+			// Broadcast so the owning panel notifies the material editor to sync the preview copy
+			// onto OriginalMaterial (otherwise the rename is lost on save/reopen, same root cause
+			// as the Group-save bug — see SMaterialLayoutProPanel::NotifyMaterialEditorChanged).
+			Session->BroadcastMaterialChanged();
 		}
 	}
 	}

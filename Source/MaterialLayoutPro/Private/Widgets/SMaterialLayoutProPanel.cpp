@@ -118,14 +118,24 @@ void SMaterialLayoutProPanel::BindToMaterialEditor(TWeakPtr<IMaterialEditor> InE
 
 void SMaterialLayoutProPanel::OnMaterialChangedBySession()
 {
-	// The session wrote a new value/group/name back to the material. Tell the bound material
-	// editor to refresh its graph nodes + details panel so the change is visible there too.
+	// The session wrote a new value/group/name back to the material. Push the change through
+	// the material editor's sync path so it lands on OriginalMaterial (the on-disk copy).
+	NotifyMaterialEditorChanged();
+}
+
+void SMaterialLayoutProPanel::NotifyMaterialEditorChanged()
+{
 	if (OwningMaterialEditor.IsValid())
 	{
 		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
 		if (Editor.IsValid())
 		{
-			Editor->NotifyExternalMaterialChange();
+			// UpdateMaterialAfterGraphChange re-links expressions from the graph, refreshes the
+			// preview, marks the package dirty, AND — critically — calls SetMaterialDirty(). That
+			// sets bMaterialDirty, which the editor checks on close/save to decide whether to
+			// duplicate the preview copy onto OriginalMaterial. Without it, edits made here are
+			// visible live but lost on save/reopen (the saved OriginalMaterial is never updated).
+			Editor->UpdateMaterialAfterGraphChange();
 		}
 	}
 }
@@ -516,6 +526,7 @@ void SMaterialLayoutProPanel::OnParamDropped(TSharedPtr<FMLPParamVM> DraggedPara
 
 	M->PostEditChange();
 	M->MarkPackageDirty();
+	NotifyMaterialEditorChanged();
 	RebuildTree();
 }
 
@@ -761,6 +772,7 @@ FReply SMaterialLayoutProPanel::OnSetGroupForSelectionClicked()
 
 	M->PostEditChange();
 	M->MarkPackageDirty();
+	NotifyMaterialEditorChanged();
 	if (SetGroupInput.IsValid()) SetGroupInput->SetText(FText::GetEmpty());
 	RefreshParameters();
 	return FReply::Handled();
@@ -778,7 +790,7 @@ FReply SMaterialLayoutProPanel::OnArchiveUnusedClicked()
 	int32 Archived = 0;
 	for (auto& P : Params) if (P->Usage == EMLPParameterUsage::Unused)
 		if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E->Modify(); E->Group = Dep; ++Archived; }
-	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
+	M->PostEditChange(); M->MarkPackageDirty(); NotifyMaterialEditorChanged(); RefreshParameters();
 	return FReply::Handled();
 }
 
@@ -799,7 +811,7 @@ FReply SMaterialLayoutProPanel::OnDeleteUnusedClicked()
 #endif
 		++Deleted;
 	}
-	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
+	M->PostEditChange(); M->MarkPackageDirty(); NotifyMaterialEditorChanged(); RefreshParameters();
 	return FReply::Handled();
 }
 
@@ -846,7 +858,7 @@ FReply SMaterialLayoutProPanel::OnAutoGroupClicked()
 			}
 		}
 	}
-	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
+	M->PostEditChange(); M->MarkPackageDirty(); NotifyMaterialEditorChanged(); RefreshParameters();
 	return FReply::Handled();
 }
 
@@ -872,7 +884,7 @@ FReply SMaterialLayoutProPanel::OnGroupByCommentClicked()
 			if (Pos.X>=Min.X&&Pos.X<=Max.X&&Pos.Y>=Min.Y&&Pos.Y<=Max.Y)
 				if (auto* E2 = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E2->Modify(); E2->Group = GN; } }
 	}
-	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
+	M->PostEditChange(); M->MarkPackageDirty(); NotifyMaterialEditorChanged(); RefreshParameters();
 	return FReply::Handled();
 }
 
@@ -918,7 +930,7 @@ FReply SMaterialLayoutProPanel::OnImportClicked()
 			TArray<FString> Fl; L[i].ParseIntoArray(Fl, TEXT(","), false); if (Fl.Num()<4) continue;
 			auto** P = M.Find(FName(*Fl[0])); if (!P||!*P) continue;
 			(*P)->Modify(); (*P)->Group = FName(*Fl[2]); (*P)->SortPriority = FCString::Atoi(*Fl[3]); }
-		Mat->PostEditChange(); Mat->MarkPackageDirty(); RefreshParameters();
+		Mat->PostEditChange(); Mat->MarkPackageDirty(); NotifyMaterialEditorChanged(); RefreshParameters();
 	}
 	return FReply::Handled();
 }
@@ -928,7 +940,12 @@ FReply SMaterialLayoutProPanel::OnSortWorkbenchClicked()
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
 	auto Params = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
 	FSlateApplication::Get().AddWindow(SNew(SMaterialSortWorkbench).TargetMaterial(TargetMaterial).Parameters(Params)
-		.OnApplied(FSimpleDelegate::CreateLambda([this](){ RefreshParameters(); })));
+		.OnApplied(FSimpleDelegate::CreateLambda([this](){
+			// SortWorkbench writes Group/SortPriority directly to expressions; sync to the
+			// editor's OriginalMaterial so the edits survive save/reopen.
+			NotifyMaterialEditorChanged();
+			RefreshParameters();
+		})));
 	return FReply::Handled();
 }
 
