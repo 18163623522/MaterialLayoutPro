@@ -18,6 +18,13 @@ UMaterialLayoutProSettings::UMaterialLayoutProSettings()
 
 	DeprecatedGroupName = TEXT("Deprecated");
 	bExportValueColumn = true;
+
+	// Default group display order - groups not listed here sort alphabetically after.
+	GroupOrder.Add(FMaterialLayoutProGroupOrder{0,  TEXT("000_BaseColor"),  TEXT("BaseColor")});
+	GroupOrder.Add(FMaterialLayoutProGroupOrder{10, TEXT("010_Normal"),     TEXT("Normal")});
+	GroupOrder.Add(FMaterialLayoutProGroupOrder{20, TEXT("020_ORM"),       TEXT("ORM")});
+	GroupOrder.Add(FMaterialLayoutProGroupOrder{30, TEXT("030_Emissive"),   TEXT("Emissive")});
+	GroupOrder.Add(FMaterialLayoutProGroupOrder{90, TEXT("090_Deprecated"), TEXT("Deprecated")});
 }
 
 FName UMaterialLayoutProSettings::GetSectionName() const

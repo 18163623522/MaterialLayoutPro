@@ -1,5 +1,6 @@
 #include "Model/MaterialLayoutViewModel.h"
 #include "MaterialLayoutProTheme.h"
+#include "MaterialLayoutProSettings.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionParameter.h"
@@ -197,11 +198,60 @@ void FMLPSession::PullAll()
         Groups[*FoundIndex]->Parameters.Add(ParamVM);
     }
 
-    // Sort groups alphabetically (matches the old BuildFromMaterial behavior).
-    Groups.Sort([](const TSharedPtr<FMLPGroupVM>& A, const TSharedPtr<FMLPGroupVM>& B)
+    // Sort groups: by user-defined GroupOrder if configured, then alphabetically.
+    // Also strip numeric prefix (e.g. "000_Basecolor" -> "Basecolor") for display.
     {
-        return A->Name.ToString() < B->Name.ToString();
-    });
+        const auto* Settings = GetDefault<UMaterialLayoutProSettings>();
+        TMap<FName, int32> OrderMap;
+        TMap<FName, FString> DisplayNameMap;
+        bool bHasOrderRules = false;
+        if (Settings)
+        {
+            for (const auto& Rule : Settings->GroupOrder)
+            {
+                OrderMap.Add(FName(*Rule.GroupName), Rule.Order);
+                if (!Rule.DisplayName.IsEmpty())
+                    DisplayNameMap.Add(FName(*Rule.GroupName), Rule.DisplayName);
+                bHasOrderRules = true;
+            }
+        }
+
+        Groups.Sort([&](const TSharedPtr<FMLPGroupVM>& A, const TSharedPtr<FMLPGroupVM>& B)
+        {
+            int32 OrderA = OrderMap.Contains(A->Name) ? OrderMap[A->Name] : MAX_int32;
+            int32 OrderB = OrderMap.Contains(B->Name) ? OrderMap[B->Name] : MAX_int32;
+            if (OrderA != OrderB) return OrderA < OrderB;
+            return A->Name.ToString() < B->Name.ToString();
+        });
+
+        // Apply display names: strip "NNN_" prefix or use user-defined DisplayName.
+        for (const TSharedPtr<FMLPGroupVM>& Group : Groups)
+        {
+            FString* CustomName = DisplayNameMap.Find(Group->Name);
+            if (CustomName && !CustomName->IsEmpty())
+            {
+                Group->DisplayName = *CustomName;
+            }
+            else
+            {
+                // Auto-strip numeric prefix: "000_Basecolor" -> "Basecolor"
+                FString NameStr = Group->Name.ToString();
+                int32 Idx;
+                if (NameStr.FindChar('_', Idx) && Idx > 0)
+                {
+                    FString Prefix = NameStr.Left(Idx);
+                    bool bAllDigits = !Prefix.IsEmpty();
+                    for (TCHAR C : Prefix) { if (C < '0' || C > '9') { bAllDigits = false; break; } }
+                    if (bAllDigits) Group->DisplayName = NameStr.RightChop(Idx + 1);
+                    else Group->DisplayName = NameStr;
+                }
+                else
+                {
+                    Group->DisplayName = NameStr;
+                }
+            }
+        }
+    }
 
     // Sort parameters within each group by SortPriority (then Name as tiebreaker).
     // This makes SortPriority changes from drag-drop / inline editing visible in the panel.

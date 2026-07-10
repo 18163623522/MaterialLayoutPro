@@ -81,6 +81,7 @@ struct FMLPParamVM
 struct FMLPGroupVM
 {
     FName Name;
+    FString DisplayName;  // Display name with prefix stripped (e.g. "Basecolor" for "000_Basecolor")
     int32 SortPriority = 0;
     bool bExpanded = true;
     TArray<TSharedPtr<FMLPParamVM>> Parameters;

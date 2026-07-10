@@ -278,7 +278,7 @@ void SMaterialLayoutProPanel::RebuildTree()
 		TreeContainer->AddSlot().AutoHeight().Padding(FMargin(2.f, 6.f, 0.f, 2.f))
 		[
 			SNew(STextBlock)
-			.Text(FText::FromString(FString::Printf(TEXT("%s  (%d)"), *Group->Name.ToString(), VisibleCount)))
+			.Text(FText::FromString(FString::Printf(TEXT("%s  (%d)"), *Group->DisplayName, VisibleCount)))
 			.Font(FMLPTheme::FontSmall())
 			.ColorAndOpacity(FMLPTheme::Muted())
 		];
