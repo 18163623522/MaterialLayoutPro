@@ -1465,6 +1465,8 @@ void SMaterialLayoutProPanel::OnInstanceBoolChanged(TSharedPtr<FMLPInstanceParam
 
 FReply SMaterialLayoutProPanel::OnInstanceGroupClicked()
 {
+	// Ensure target is resolved (panel may be freshly created).
+	ResolveTargetMaterial();
 	if (!TargetMaterialInstance.IsValid()) return FReply::Handled();
 
 	PullFromInstance();
