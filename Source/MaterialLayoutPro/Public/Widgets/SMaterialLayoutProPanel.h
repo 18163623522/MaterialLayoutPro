@@ -39,6 +39,9 @@ public:
 
 	virtual void Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime) override;
 
+	/** Opens the instance group panel as a standalone window. Called from the module toolbar button. */
+	FReply OnInstanceGroupClicked();
+
 private:
 	void BindToMaterialEditor(TWeakPtr<IMaterialEditor> InEditor);
 	void OnMaterialChangedBySession();
@@ -79,7 +82,6 @@ private:
 	FReply OnGroupByCommentClicked();
 	FReply OnApplyChangesClicked();
 	FReply OnSetGroupForSelectionClicked();
-	FReply OnInstanceGroupClicked();  // Opens instance group panel as a window
 
 	// --- Instance mode (tabbed group panel) ---
 	void PullFromInstance();

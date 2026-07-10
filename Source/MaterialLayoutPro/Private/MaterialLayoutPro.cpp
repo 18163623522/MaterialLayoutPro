@@ -19,6 +19,7 @@
 #include "EdGraphNode_Comment.h"
 #include "MaterialGraph/MaterialGraph.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "ScopedTransaction.h"
@@ -266,6 +267,49 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 				FSlateIcon(FAppStyle::GetAppStyleSetName(), "DetailsPanel")
 #else
 				FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.ToggleDetails")
+#endif
+			);
+
+			// Instance group panel button - opens a standalone window for material instance parameter grouping.
+			Builder.AddToolBarButton(
+				FUIAction(
+					FExecuteAction::CreateLambda([]()
+					{
+						UAssetEditorSubsystem* AssetEditorSS = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
+						if (!AssetEditorSS) return;
+						for (UObject* Asset : AssetEditorSS->GetAllEditedAssets())
+						{
+							if (!Asset) continue;
+							UMaterialInstance* MI = Cast<UMaterialInstance>(Asset);
+							if (!MI) continue;
+							IAssetEditorInstance* Instance = AssetEditorSS->FindEditorForAsset(Asset, false);
+							if (!Instance) continue;
+
+							// Create the panel widget and open it in a window.
+							TSharedRef<SMaterialLayoutProPanel> Panel = SNew(SMaterialLayoutProPanel)
+								.OwningMaterialEditor(StaticCastSharedRef<IMaterialEditor>(static_cast<FAssetEditorToolkit*>(Instance)->AsShared()));
+							Panel->OnInstanceGroupClicked();
+							return;
+						}
+					}),
+					FCanExecuteAction::CreateLambda([]() -> bool
+					{
+						UAssetEditorSubsystem* AssetEditorSS = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
+						if (!AssetEditorSS) return false;
+						for (UObject* Asset : AssetEditorSS->GetAllEditedAssets())
+						{
+							return Asset && Asset->IsA<UMaterialInstance>();
+						}
+						return false;
+					})
+				),
+				NAME_None,
+				FText::FromString(TEXT("实例分组")),
+				FText::FromString(TEXT("材质实例参数分组")),
+#if ENGINE_MAJOR_VERSION >= 5
+				FSlateIcon(FAppStyle::GetAppStyleSetName(), "MaterialInstanceEditor.ToggleProperties")
+#else
+				FSlateIcon(FEditorStyle::GetStyleSetName(), "MaterialEditor.ToggleProperties")
 #endif
 			);
 		}));
