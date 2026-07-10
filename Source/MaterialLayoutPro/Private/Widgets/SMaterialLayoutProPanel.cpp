@@ -552,6 +552,14 @@ void SMaterialLayoutProPanel::RefreshParameters()
 {
 	if (!Session.IsValid()) return;
 
+	// Snapshot selected param names before refresh - PullAll creates new VM objects,
+	// so we need to rebind SelectedParams to the new VMs by name match.
+	TArray<FName> SelectedNames;
+	for (const TSharedPtr<FMLPParamVM>& Sel : SelectedParams)
+	{
+		if (Sel.IsValid()) SelectedNames.Add(Sel->Name);
+	}
+
 	// In embedded mode, re-resolve the target (editor may have switched assets).
 	if (OwningMaterialEditor.IsValid())
 	{
@@ -562,6 +570,24 @@ void SMaterialLayoutProPanel::RefreshParameters()
 	{
 		Session->TargetMaterial = TargetMaterial;
 		Session->PullAll();
+
+		// Rebind SelectedParams to the new VMs by name match.
+		TArray<TSharedPtr<FMLPParamVM>> NewSelection;
+		for (const FName& SelName : SelectedNames)
+		{
+			for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
+			{
+				for (const TSharedPtr<FMLPParamVM>& Param : Group->Parameters)
+				{
+					if (Param.IsValid() && Param->Name == SelName)
+					{
+						NewSelection.Add(Param);
+						break;
+					}
+				}
+			}
+		}
+		SelectedParams = MoveTemp(NewSelection);
 	}
 	else
 	{
