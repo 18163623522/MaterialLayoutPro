@@ -24,9 +24,6 @@ public:
 
 	virtual void Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime) override;
 
-	/** Opens the instance group panel as a standalone window. Called from the module toolbar button. */
-	FReply OnInstanceGroupClicked();
-
 private:
 	void BindToMaterialEditor(TWeakPtr<IMaterialEditor> InEditor);
 	void OnMaterialChangedBySession();
@@ -77,10 +74,9 @@ private:
 	FReply OnApplyChangesClicked();
 	FReply OnSetGroupForSelectionClicked();
 
-	// NOTE: instance-mode (tabbed group panel) build/edit logic has moved to
-	// SMaterialInstanceGroupPanel, which is a self-contained widget placed as the window
-	// content so its lifetime == window lifetime. This panel only keeps OnInstanceGroupClicked
-	// (the toolbar trigger) which delegates to FMaterialLayoutProModule::OpenInstanceGroupWindow.
+	// NOTE: instance-mode panel logic lives in SMaterialInstanceGroupPanel, now registered as
+	// a dockable tab in the material instance editor (FMaterialLayoutProModule::RegisterInstanceSidebar).
+	// This material-editor sidebar no longer hosts any instance UI.
 
 	// --- Data ---
 	TSharedPtr<FMLPSession> Session;

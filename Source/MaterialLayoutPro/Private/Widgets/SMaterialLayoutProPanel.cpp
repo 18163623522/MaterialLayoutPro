@@ -687,20 +687,6 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("IM","导入")).ToolTipText(LOCTEXT("IMT","导入 CSV")).OnClicked(this,&SMaterialLayoutProPanel::OnImportClicked)
 		]
-		// Instance group panel button - only visible when editing a material instance.
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SBox)
-			.Visibility(TAttribute<EVisibility>::Create([this]() -> EVisibility {
-				return TargetMaterialInstance.IsValid() ? EVisibility::Visible : EVisibility::Collapsed;
-			}))
-			[
-				SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-				.ButtonColorAndOpacity(FMLPTheme::ButtonPrimary()).ForegroundColor(FMLPTheme::ButtonTextOnColor())
-				.Text(LOCTEXT("IGP","实例分组")).ToolTipText(LOCTEXT("IGPT","打开材质实例参数分组面板"))
-				.OnClicked(this, &SMaterialLayoutProPanel::OnInstanceGroupClicked)
-			]
-		]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		// Set-group for multi-selection: input box + apply button.
 		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0,0,2,0))
@@ -983,20 +969,9 @@ FText SMaterialLayoutProPanel::GetStatusText() const
 }
 
 // ============================================================================
-// Instance group panel - opens as a separate window
+// Instance group panel — now a dockable tab in the material instance editor.
+// The old sidebar "实例分组" button is removed (it opened a floating window);
+// the instance editor's toolbar "实例分组" button toggles the dockable tab instead.
 // ============================================================================
-
-FReply SMaterialLayoutProPanel::OnInstanceGroupClicked()
-{
-	// Resolve the bound instance (panel may be in a material-instance editor) and delegate to
-	// the module's window helper. The window's content IS the SMaterialInstanceGroupPanel,
-	// so the panel lives exactly as long as the window — its tab/override/value callbacks
-	// are therefore safe. (The old implementation built a loose child SVerticalBox as window
-	// content and let this panel be destroyed, leaving every callback resolving to a dead
-	// weak ptr — Tab clicks and override toggles silently did nothing.)
-	ResolveTargetMaterial();
-	FMaterialLayoutProModule::OpenInstanceGroupWindow(TargetMaterialInstance.Get());
-	return FReply::Handled();
-}
 
 #undef LOCTEXT_NAMESPACE

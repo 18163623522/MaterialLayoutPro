@@ -40,6 +40,7 @@
 
 static const FName MaterialLayoutProTabName(TEXT("MaterialLayoutPro"));
 const FName FMaterialLayoutProModule::EmbeddedTabId(TEXT("MaterialLayoutProSidebar"));
+const FName FMaterialLayoutProModule::InstanceSidebarTabId(TEXT("MaterialInstanceLayoutProSidebar"));
 
 void FMaterialLayoutProModule::StartupModule()
 {
@@ -307,7 +308,8 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 #endif
 			);
 
-			// Instance group panel button - opens a standalone window for material instance parameter grouping.
+			// Instance group panel button - toggles the dockable "实例分组" sidebar tab in the
+			// focused material instance editor (same toggle pattern as "窗口布局Pro" above).
 			Builder.AddToolBarButton(
 				FUIAction(
 					FExecuteAction::CreateLambda([]()
@@ -318,8 +320,7 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 						for (UObject* Asset : AssetEditorSS->GetAllEditedAssets())
 						{
 							if (!Asset) continue;
-							UMaterialInstance* MI = Cast<UMaterialInstance>(Asset);
-							if (!MI) continue;
+							if (!Asset->IsA<UMaterialInstance>()) continue;
 							IAssetEditorInstance* Instance = AssetEditorSS->FindEditorForAsset(Asset, false);
 							if (!Instance) continue;
 
@@ -331,10 +332,22 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 							TSharedPtr<SWindow> EditorWindow = FSlateApplication::Get().FindWidgetWindow(HostWidget);
 							if (ActiveWindow != EditorWindow) continue;
 
-							// Open the instance group window. OpenInstanceGroupWindow puts the
-							// SMaterialInstanceGroupPanel as the window content so it stays alive
-							// for the window's lifetime (previous code leaked a dead panel).
-							FMaterialLayoutProModule::OpenInstanceGroupWindow(MI);
+							IMaterialEditor* MatEditor = static_cast<IMaterialEditor*>(Instance);
+							FMaterialLayoutProModule& Module = FModuleManager::GetModuleChecked<FMaterialLayoutProModule>("MaterialLayoutPro");
+							Module.RegisterInstanceSidebar(MatEditor);
+
+							if (TSharedPtr<FTabManager> TM = Toolkit->GetTabManager())
+							{
+								TSharedPtr<SDockTab> Tab = TM->FindExistingLiveTab(FMaterialLayoutProModule::InstanceSidebarTabId);
+								if (Tab.IsValid() && Tab->IsForeground())
+								{
+									Tab->RequestCloseTab();
+								}
+								else
+								{
+									TM->TryInvokeTab(FMaterialLayoutProModule::InstanceSidebarTabId);
+								}
+							}
 							return;
 						}
 					}),
@@ -377,25 +390,43 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 // Material Instance group window
 // ============================================================================
 
-TSharedPtr<SWindow> FMaterialLayoutProModule::OpenInstanceGroupWindow(UMaterialInstance* MI)
+void FMaterialLayoutProModule::RegisterInstanceSidebar(IMaterialEditor* InMaterialEditor)
 {
-	if (!MI) return nullptr;
+	if (!InMaterialEditor) return;
 
-	TSharedRef<SWindow> Window = SNew(SWindow)
-		.Title(FText::FromString(FString::Printf(TEXT("参数分组 - %s"), *MI->GetName())))
-		.ClientSize(FVector2D(600, 400))
-		.SizingRule(ESizingRule::UserSized)
-		// The window content IS the panel widget itself — this is what keeps the panel alive
-		// for the window's whole lifetime. Previous code put a loose child SVerticalBox as
-		// content and let the owning panel get destroyed, so every tab/override callback
-		// resolved to a dead weak ptr and silently did nothing.
-		[
-			SNew(SMaterialInstanceGroupPanel)
-			.TargetInstance(MI)
-		];
+	FAssetEditorToolkit* AsToolkit = static_cast<FAssetEditorToolkit*>(InMaterialEditor);
+	TWeakPtr<IMaterialEditor> WeakEditor = StaticCastSharedRef<IMaterialEditor>(AsToolkit->AsShared());
 
-	FSlateApplication::Get().AddWindow(Window);
-	return Window;
+	TSharedPtr<FTabManager> TabManager = AsToolkit->GetTabManager();
+	if (!TabManager.IsValid()) return;
+
+	// Idempotent: unregister first, then register fresh (mirrors RegisterEmbeddedSidebar).
+	TabManager->UnregisterTabSpawner(InstanceSidebarTabId);
+	TabManager->RegisterTabSpawner(InstanceSidebarTabId, FOnSpawnTab::CreateRaw(this, &FMaterialLayoutProModule::OnSpawnInstanceSidebarTab, WeakEditor))
+		.SetDisplayName(LOCTEXT("InstanceSidebarTabLabel", "实例分组"))
+		.SetMenuType(ETabSpawnerMenuType::Enabled);
+
+	// Auto-open on first registration only.
+	TSharedPtr<SDockTab> ExistingTab = TabManager->FindExistingLiveTab(InstanceSidebarTabId);
+	if (!ExistingTab.IsValid())
+	{
+		TabManager->TryInvokeTab(InstanceSidebarTabId);
+	}
+}
+
+TSharedRef<SDockTab> FMaterialLayoutProModule::OnSpawnInstanceSidebarTab(const FSpawnTabArgs& Args, TWeakPtr<IMaterialEditor> InMaterialEditor)
+{
+	TSharedRef<SDockTab> Tab = SNew(SDockTab)
+		.TabRole(ETabRole::PanelTab)
+		.Label(LOCTEXT("InstanceSidebarTabTitle", "实例分组"));
+
+	Tab->SetContent
+	(
+		SNew(SMaterialInstanceGroupPanel)
+		.OwningInstanceEditor(InMaterialEditor)
+	);
+
+	return Tab;
 }
 
 // ============================================================================
@@ -405,10 +436,20 @@ TSharedPtr<SWindow> FMaterialLayoutProModule::OpenInstanceGroupWindow(UMaterialI
 void FMaterialLayoutProModule::OnAssetOpenedInEditor(UObject* Asset, IAssetEditorInstance* Instance)
 {
 	if (!Asset || !Instance) return;
-	if (!Asset->IsA<UMaterialInterface>()) return;
 
 	IMaterialEditor* MatEditor = static_cast<IMaterialEditor*>(Instance);
-	RegisterEmbeddedSidebar(MatEditor);
+
+	// Route by asset type so each editor only gets its relevant sidebar:
+	//  - UMaterial (parent material)        -> "参数布局" sidebar (expression editing)
+	//  - UMaterialInstance                  -> "实例分组" sidebar (override editing + custom grouping)
+	if (Asset->IsA<UMaterial>())
+	{
+		RegisterEmbeddedSidebar(MatEditor);
+	}
+	else if (Asset->IsA<UMaterialInstance>())
+	{
+		RegisterInstanceSidebar(MatEditor);
+	}
 }
 
 void FMaterialLayoutProModule::RegisterEmbeddedSidebar(IMaterialEditor* InMaterialEditor)

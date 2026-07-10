@@ -5,15 +5,18 @@
 
 class UMaterial;
 class UMaterialInstance;
+class UMaterialInstanceGroupData;
+class IMaterialEditor;
 class SVerticalBox;
 class SScrollBox;
+class SEditableTextBox;
 
-/** A single parameter in instance mode: name + type + group + override state + value.
- *  Self-contained per-parameter VM for SMaterialInstanceGroupPanel so the widget can stand alone. */
+/** A single parameter in instance mode: name + type + group + override state + value. */
 struct FMLPInstanceParamVM
 {
 	FName Name;
-	FName Group;
+	FName BaseGroup;   // parent material's expression Group (fallback)
+	FName EffectiveGroup; // resolved group (custom override or base)
 	FGuid ExpressionGUID;
 	int32 Type = 0;  // EMLPParameterType
 	bool bOverridden = false;
@@ -24,62 +27,90 @@ struct FMLPInstanceParamVM
 	bool BoolValue = false;
 };
 
+/** A resolved group with its parameters, ready for display. */
+struct FMLPInstanceGroupVM
+{
+	FName Name;
+	int32 SortPriority = 0;
+	TArray<TSharedPtr<FMLPInstanceParamVM>> Parameters;
+};
+
 /**
- * Standalone widget for the "material instance parameter group" panel.
+ * Material instance parameter panel — shows parameters grouped (flat, all groups expanded,
+ * like the parent-material sidebar), with inline override value editing.
  *
- * Shown inside its own SWindow (created by SMaterialLayoutProPanel::OnInstanceGroupClicked
- * / the toolbar "实例分组" button). Because the window holds a strong ref to THIS widget as
- * its content, the widget's lifetime is exactly the window's lifetime — row/tab lambdas can
- * safely capture AsShared() and there is no use-after-free risk.
+ * Shown as a dockable tab inside the material instance editor (registered via
+ * FMaterialLayoutProModule::RegisterInstanceSidebar). Because the tab's SDockTab holds a strong
+ * ref to this widget, the widget lifetime == tab lifetime — row lambdas capture AsShared()
+ * weak ptrs safely.
  *
- * This is a self-contained widget: it owns its own data (InstanceParams / tabs), its own
- * refresh path (RebuildInstanceContent), and writes overrides straight to the bound
- * UMaterialInstance. It deliberately does NOT touch SMaterialLayoutProPanel's material-
- * parameter tree (TreeContainer) — that path is irrelevant here.
+ * Grouping is INDEPENDENT per instance: stored as UMaterialInstanceGroupData (AssetUserData on
+ * the MI). Default = parent material's expression Group; user can drag params between groups
+ * and the custom mapping is persisted to the MI only (never modifies the parent material).
  */
 class MATERIALLAYOUTPRO_API SMaterialInstanceGroupPanel : public SCompoundWidget
 {
 public:
 	SLATE_BEGIN_ARGS(SMaterialInstanceGroupPanel) {}
-		/** The material instance this panel edits. Required (the panel shows an error if null). */
-		SLATE_ARGUMENT(TWeakObjectPtr<UMaterialInstance>, TargetInstance)
+		/** The material instance editor this panel is embedded in. Required. */
+		SLATE_ARGUMENT(TWeakPtr<IMaterialEditor>, OwningInstanceEditor)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
+	virtual void Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime) override;
 
 private:
+	// --- Editor binding / resolution ---
+	void BindToInstanceEditor(TWeakPtr<IMaterialEditor> InEditor);
+	void ResolveTarget();
+
 	// --- Data load ---
-	/** Scan the parent material for parameters, fold in instance overrides, build InstanceParams + tabs. */
+	/** Scan parent material + fold in instance overrides + apply custom grouping. */
 	void PullFromInstance();
 
 	// --- UI build / refresh ---
-	/** Build the top-level container (tab bar slot + scrollable rows slot) once. */
+	TSharedRef<SWidget> BuildToolbar();
+	TSharedRef<SWidget> BuildStatusBar();
 	TSharedRef<SWidget> BuildInitialContent();
-	/** Clear + repopulate the top-level container. Called by every state-changing handler. */
+	/** Clear + repopulate the scrollable group list. Called by every state-changing handler. */
 	void RebuildInstanceContent();
-	/** Build the tab bar row (one button per group + [+] add button). */
-	TSharedRef<SWidget> BuildTabBar();
-	/** Append parameter rows for CurrentTab into the given scroll box. */
-	void BuildRows(TSharedRef<SScrollBox> ContentBox);
+	/** Build the group sections (title bar + rows) into the given vertical box. */
+	void BuildGroupSections(TSharedRef<SVerticalBox> ContentBox);
 
 	// --- Handlers ---
-	FReply OnTabClicked(FName GroupName);
-	FReply OnAddTabClicked();
+	FReply OnRefreshClicked();
+	/** Drag a param to a different group (writes AssetUserData only, not the parent material). */
+	void OnParamMovedToGroup(TSharedPtr<FMLPInstanceParamVM> Param, FName NewGroup);
+	/** Set the group-order sort priority for a group (reorders groups). */
+	void OnGroupSortChanged(FName GroupName, int32 NewPriority);
+
+	// --- Override value handlers (write straight to the MI's typed value arrays) ---
 	void OnToggleOverride(TSharedPtr<FMLPInstanceParamVM> Param);
 	void OnInstanceScalarChanged(TSharedPtr<FMLPInstanceParamVM> Param, float NewValue, ETextCommit::Type CommitType);
 	void OnInstanceVectorChanged(TSharedPtr<FMLPInstanceParamVM> Param, FLinearColor NewColor);
 	void OnInstanceTextureChanged(TSharedPtr<FMLPInstanceParamVM> Param, UObject* NewTexture);
 	void OnInstanceBoolChanged(TSharedPtr<FMLPInstanceParamVM> Param, bool bNewValue);
-	/** Add/update/remove a static switch override entry via StaticParameters + UpdateStaticPermutation. */
 	void SetStaticSwitchOverride(TSharedPtr<FMLPInstanceParamVM> Param, bool bOverride, bool bNewValue);
 
-	// --- Data ---
-	TWeakObjectPtr<UMaterialInstance> TargetInstance;
-	TWeakObjectPtr<UMaterial> TargetMaterial;  // parent material, for group scans
-	TArray<TSharedPtr<FMLPInstanceParamVM>> InstanceParams;
-	TArray<FName> InstanceTabNames;
-	FName CurrentTab;
+	// --- Status ---
+	FText GetInstanceName() const;
+	FText GetStatusText() const;
 
-	// --- UI container (the top-level box RebuildInstanceContent clears + refills) ---
+	// --- Data ---
+	TWeakPtr<IMaterialEditor> OwningInstanceEditor;
+	TWeakObjectPtr<UMaterialInstance> TargetInstance;
+	TWeakObjectPtr<UMaterial> TargetMaterial;  // parent material
+	TWeakObjectPtr<UMaterialInstanceGroupData> GroupData;
+
+	TArray<TSharedPtr<FMLPInstanceParamVM>> AllParams;
+	TArray<TSharedPtr<FMLPInstanceGroupVM>> Groups;
+
+	// --- UI ---
 	TSharedPtr<SVerticalBox> ContentContainer;
+	TSharedPtr<SScrollBox> ParamScroll;
+	TOptional<double> LastPollTime;
+	/** Persisted list of group names shared by all row SComboBoxes (SComboBox holds a raw
+	 *  ptr to its options source, so it must outlive the combo box — keep it as a member).
+	 *  Stored as shared ptrs because UE4.26 SComboBox requires OptionType to be a pointer type. */
+	TArray<TSharedPtr<FName>> CachedGroupNames;
 };
