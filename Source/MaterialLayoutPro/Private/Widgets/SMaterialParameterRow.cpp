@@ -39,106 +39,89 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 
 	if (!VM.IsValid())
 	{
-		ChildSlot
-		[
-			SNew(STextBlock).Text(LOCTEXT("InvalidRow", "无效"))
-		];
+		ChildSlot [ SNew(STextBlock).Text(LOCTEXT("InvalidRow", "无效")) ];
 		return;
 	}
 
-	const FLinearColor TypeColor = FMLPTheme::GetTypeColorForType(VM->Type);
-	const FText TypeAbbr = FMLPTheme::GetTypeAbbrForType(VM->Type);
-	const FLinearColor NameColor = VM->bHasDuplicateName ? FMLPTheme::Warning() : FMLPTheme::Foreground();
+	// Type color — shown as a small dot to the left of the name.
+	const FLinearColor& TypeColor = FMLPTheme::GetTypeColorForType(VM->Type);
 
-	// Background reads VM selection-like state via bSelected (set at construct time).
+	// Name color — unused params shown in red (original-style diagnostic).
+	const FLinearColor NameColor = (VM->Usage == EMLPParameterUsage::Unused)
+		? FMLPTheme::Destructive()
+		: (VM->bHasDuplicateName ? FMLPTheme::Warning() : FMLPTheme::Foreground());
+
 	auto GetBgColor = [this]() -> FLinearColor
 	{
-		return bSelected
-			? FLinearColor(FMLPTheme::SelectionBg().R, FMLPTheme::SelectionBg().G, FMLPTheme::SelectionBg().B, 0.35f)
-			: FLinearColor(FMLPTheme::Surface().R, FMLPTheme::Surface().G, FMLPTheme::Surface().B, 0.6f);
+		if (bSelected) return FMLPTheme::SelectionBg();
+		return FLinearColor::Transparent;
 	};
-
-	// Group editor: editable in detail mode, hidden in compact row mode.
-	TSharedRef<SWidget> GroupWidget = bDetailMode
-		? StaticCastSharedRef<SWidget>(
-			SNew(SEditableTextBox)
-			.Text(FText::FromName(VM->Group))
-			.Font(FMLPTheme::FontBody())
-			.OnTextCommitted(this, &SMaterialParameterRow::OnGroupCommitted))
-		: StaticCastSharedRef<SWidget>(SNew(SBox));
-
-	// Priority editor: editable in detail mode only.
-	TSharedRef<SWidget> PriorityWidget = bDetailMode
-		? StaticCastSharedRef<SWidget>(
-			SNew(SBox).WidthOverride(60.f)
-			[
-				SNew(SNumericEntryBox<int32>)
-				.Value(TOptional<int32>(VM->SortPriority))
-				.Font(FMLPTheme::FontBody())
-				.OnValueCommitted(this, &SMaterialParameterRow::OnPriorityCommitted)
-			])
-		: StaticCastSharedRef<SWidget>(SNew(SBox));
 
 	ChildSlot
 	[
 		SNew(SBorder)
 		.BorderBackgroundColor_Lambda(GetBgColor)
 		.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-		.Padding(FMargin(8.f, 3.f, 6.f, 3.f))
+		.Padding(FMargin(6.f, 2.f, 4.f, 2.f))
 		[
 			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).HAlign(HAlign_Center)
+
+			// Type color dot
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 			.Padding(FMargin(0.f, 0.f, 6.f, 0.f))
 			[
-				FMLPTheme::MakeTypePill(TypeAbbr, TypeColor)
-			]
-			+ SHorizontalBox::Slot().FillWidth(bDetailMode ? 0.22f : 0.30f).VAlign(VAlign_Center)
-			.Padding(FMLPTheme::PadSM())
-			[
-				SNew(SBorder)
-				.BorderBackgroundColor(FLinearColor::Transparent)
-				.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-				.Padding(FMargin(0.f))
+				SNew(SBox).WidthOverride(8.f).HeightOverride(8.f)
 				[
-					SNew(SEditableTextBox)
-					.Text(FText::FromName(VM->Name))
-					.Font(FMLPTheme::FontBody())
-					.ForegroundColor(NameColor)
-					.SelectAllTextWhenFocused(true)
-					.IsReadOnly(false)
-					.OnTextCommitted(this, &SMaterialParameterRow::OnNameCommitted)
-					.ToolTipText(MakeDiagnosticTooltip())
+					SNew(SBorder)
+					.BorderBackgroundColor(TypeColor)
+					.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+					.Padding(0.f)
 				]
 			]
-			+ SHorizontalBox::Slot().FillWidth(bDetailMode ? 0.22f : 0.40f).VAlign(VAlign_Center)
-			.Padding(FMLPTheme::PadSM())
+
+			// Name (editable)
+			+ SHorizontalBox::Slot().FillWidth(0.30f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
+			[
+				SNew(SEditableTextBox)
+				.Text(FText::FromName(VM->Name))
+				.Font(FMLPTheme::FontBody())
+				.ForegroundColor(NameColor)
+				.SelectAllTextWhenFocused(true)
+				.OnTextCommitted(this, &SMaterialParameterRow::OnNameCommitted)
+				.ToolTipText(MakeDiagnosticTooltip())
+			]
+
+			// Value editor
+			+ SHorizontalBox::Slot().FillWidth(0.34f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
 			[
 				BuildValueEditor()
 			]
-			+ SHorizontalBox::Slot().FillWidth(0.20f).VAlign(VAlign_Center)
-			.Padding(FMLPTheme::PadSM())
+
+			// Group (editable, detail mode)
+			+ SHorizontalBox::Slot().FillWidth(0.20f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
 			[
-				GroupWidget
+				bDetailMode
+					? StaticCastSharedRef<SWidget>(
+						SNew(SEditableTextBox)
+						.Text(FText::FromName(VM->Group))
+						.Font(FMLPTheme::FontSmall())
+						.OnTextCommitted(this, &SMaterialParameterRow::OnGroupCommitted))
+					: StaticCastSharedRef<SWidget>(SNew(SBox))
 			]
+
+			// Sort priority (detail mode only)
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-			.Padding(FMLPTheme::PadSM())
 			[
-				PriorityWidget
-			]
-			+ SHorizontalBox::Slot().FillWidth(bDetailMode ? 0.13f : 0.15f).VAlign(VAlign_Center)
-			.Padding(FMLPTheme::PadSM())
-			[
-				SNew(SBorder)
-				.BorderBackgroundColor(VM->GetUsageBgColor())
-				.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-				.Padding(FMargin(4.f, 1.f))
-				.HAlign(HAlign_Center)
-				[
-					SNew(STextBlock)
-					.Text(VM->GetUsageLabel())
-					.Font(FMLPTheme::FontBadge())
-					.ColorAndOpacity(VM->GetUsageColor())
-				]
+				bDetailMode
+					? StaticCastSharedRef<SWidget>(
+						SNew(SBox).WidthOverride(48.f)
+						[
+							SNew(SNumericEntryBox<int32>)
+							.Value(TOptional<int32>(VM->SortPriority))
+							.Font(FMLPTheme::FontSmall())
+							.OnValueCommitted(this, &SMaterialParameterRow::OnPriorityCommitted)
+						])
+					: StaticCastSharedRef<SWidget>(SNew(SBox))
 			]
 		]
 	];
@@ -146,10 +129,7 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 
 TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 {
-	if (!VM.IsValid())
-	{
-		return SNew(STextBlock).Text(FText::GetEmpty());
-	}
+	if (!VM.IsValid()) return SNew(STextBlock).Text(FText::GetEmpty());
 
 	TWeakPtr<FMLPParamVM> WeakVM = VM;
 
@@ -158,30 +138,25 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 	case EMLPParameterType::Scalar:
 	{
 		return SNew(SNumericEntryBox<float>)
-			.Value_Lambda([WeakVM]() -> TOptional<float>
-			{
+			.Value_Lambda([WeakVM]() -> TOptional<float> {
 				if (auto V = WeakVM.Pin()) return TOptional<float>(V->ScalarValue);
 				return TOptional<float>();
 			})
 			.Font(FMLPTheme::FontBody())
 			.AllowSpin(true)
-			.MinValue(TOptional<float>())
-			.MaxValue(TOptional<float>())
-			.MinSliderValue(TOptional<float>())
-			.MaxSliderValue(TOptional<float>())
+			.MinValue(TOptional<float>()).MaxValue(TOptional<float>())
+			.MinSliderValue(TOptional<float>()).MaxSliderValue(TOptional<float>())
 			.OnValueChanged(this, &SMaterialParameterRow::OnScalarDragged)
 			.OnValueCommitted(this, &SMaterialParameterRow::OnScalarCommitted);
 	}
 	case EMLPParameterType::Vector:
 	{
 		return SNew(SColorBlock)
-			.Color_Lambda([WeakVM]() -> FLinearColor
-			{
+			.Color_Lambda([WeakVM]() -> FLinearColor {
 				if (auto V = WeakVM.Pin()) return V->VectorValue;
 				return FLinearColor::White;
 			})
-			.OnMouseButtonDown_Lambda([this, WeakVM](const FGeometry&, const FPointerEvent& MouseEvent) -> FReply
-			{
+			.OnMouseButtonDown_Lambda([this, WeakVM](const FGeometry&, const FPointerEvent& MouseEvent) -> FReply {
 				if (MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) return FReply::Unhandled();
 				auto V = WeakVM.Pin();
 				if (!V.IsValid()) return FReply::Unhandled();
@@ -192,21 +167,16 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 #else
 				Args.InitialColorOverride = V->VectorValue;
 #endif
-				Args.OnColorCommitted = FOnLinearColorValueChanged::CreateLambda([this, V](FLinearColor NewColor)
-				{
-					OnVectorChanged(NewColor);
-				});
+				Args.OnColorCommitted = FOnLinearColorValueChanged::CreateLambda([this, V](FLinearColor NewColor) { OnVectorChanged(NewColor); });
 				OpenColorPicker(Args);
 				return FReply::Handled();
 			});
 	}
 	case EMLPParameterType::Texture:
 	{
-		auto GetTexName = [WeakVM]() -> FText
-		{
+		auto GetTexName = [WeakVM]() -> FText {
 			if (auto V = WeakVM.Pin())
-				if (UTexture* T = V->TextureValue.Get())
-					return FText::FromString(T->GetName());
+				if (UTexture* T = V->TextureValue.Get()) return FText::FromString(T->GetName());
 			return FText::FromString(TEXT("（无）"));
 		};
 		return SNew(SButton)
@@ -214,8 +184,7 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 			.ButtonStyle(MLP_STYLE::Get(), "FlatButton")
 			.ContentPadding(FMargin(2.f, 0.f))
 			.HAlign(HAlign_Left)
-			.OnClicked_Lambda([this]() -> FReply
-			{
+			.OnClicked_Lambda([this]() -> FReply {
 				if (!VM.IsValid()) return FReply::Handled();
 				FContentBrowserModule& CB = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
 				FAssetPickerConfig Config;
@@ -224,33 +193,18 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 #else
 				Config.Filter.ClassNames.Add(TEXT("Texture2D"));
 #endif
-				Config.OnAssetSelected = FOnAssetSelected::CreateLambda([this](const FAssetData& AssetData) -> void
-				{
-					if (VM.IsValid() && AssetData.IsValid())
-					{
+				Config.OnAssetSelected = FOnAssetSelected::CreateLambda([this](const FAssetData& AssetData) -> void {
+					if (VM.IsValid() && AssetData.IsValid()) {
 						UObject* Asset = AssetData.GetAsset();
-						if (!Asset)
-						{
-							const FString Path = AssetData.PackageName.ToString() / AssetData.AssetName.ToString();
-							Asset = LoadObject<UObject>(nullptr, *Path);
-						}
-						if (Asset)
-						{
-							OnTextureChanged(Asset);
-						}
+						if (!Asset) { const FString Path = AssetData.PackageName.ToString() / AssetData.AssetName.ToString(); Asset = LoadObject<UObject>(nullptr, *Path); }
+						if (Asset) OnTextureChanged(Asset);
 					}
 					FSlateApplication::Get().DismissAllMenus();
 				});
 				Config.bAllowNullSelection = false;
 				Config.InitialAssetViewType = EAssetViewType::List;
-
 				TSharedRef<SWidget> Picker = CB.Get().CreateAssetPicker(Config);
-				FSlateApplication::Get().PushMenu(
-					AsShared(),
-					FWidgetPath(),
-					Picker,
-					FSlateApplication::Get().GetCursorPos(),
-					FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu));
+				FSlateApplication::Get().PushMenu(AsShared(), FWidgetPath(), Picker, FSlateApplication::Get().GetCursorPos(), FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu));
 				return FReply::Handled();
 			});
 	}
@@ -258,27 +212,19 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 	case EMLPParameterType::StaticSwitch:
 	{
 		return SNew(SCheckBox)
-			.IsChecked_Lambda([WeakVM]() -> ECheckBoxState
-			{
+			.IsChecked_Lambda([WeakVM]() -> ECheckBoxState {
 				if (auto V = WeakVM.Pin()) return V->BoolValue ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 				return ECheckBoxState::Unchecked;
 			})
-			.OnCheckStateChanged_Lambda([this](ECheckBoxState State)
-			{
-				OnBoolChanged(State == ECheckBoxState::Checked);
-			});
+			.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { OnBoolChanged(State == ECheckBoxState::Checked); });
 	}
 	default:
-		return SNew(STextBlock)
-			.Text(FText::FromString(TEXT("(不支持)")))
-			.Font(FMLPTheme::FontSmall())
-			.ColorAndOpacity(FMLPTheme::Muted());
+		return SNew(STextBlock).Text(FText::FromString(TEXT("(不支持)"))).Font(FMLPTheme::FontSmall()).ColorAndOpacity(FMLPTheme::Muted());
 	}
 }
 
 void SMaterialParameterRow::OnScalarDragged(float NewValue)
 {
-	// During drag: update the VM snapshot only (live preview is too expensive per frame).
 	if (VM.IsValid()) { VM->ScalarValue = NewValue; VM->bDirty = true; }
 }
 
@@ -294,12 +240,7 @@ void SMaterialParameterRow::OnVectorChanged(FLinearColor NewColor)
 
 void SMaterialParameterRow::OnTextureChanged(UObject* NewTexture)
 {
-	if (VM.IsValid())
-	{
-		VM->TextureValue = Cast<UTexture>(NewTexture);
-		VM->bDirty = true;
-		if (Session.IsValid()) Session->PushParamNow(VM);
-	}
+	if (VM.IsValid()) { VM->TextureValue = Cast<UTexture>(NewTexture); VM->bDirty = true; if (Session.IsValid()) Session->PushParamNow(VM); }
 }
 
 void SMaterialParameterRow::OnBoolChanged(bool bNewValue)
@@ -310,8 +251,7 @@ void SMaterialParameterRow::OnBoolChanged(bool bNewValue)
 void SMaterialParameterRow::OnGroupCommitted(const FText& NewText, ETextCommit::Type CommitType)
 {
 	if (CommitType != ETextCommit::OnEnter && CommitType != ETextCommit::OnUserMovedFocus) return;
-	if (VM.IsValid())
-	{
+	if (VM.IsValid()) {
 		FName NewGroup(*NewText.ToString());
 		if (NewGroup != VM->Group) { VM->Group = NewGroup; VM->bDirty = true; if (Session.IsValid()) Session->PushParamNow(VM); }
 	}
@@ -319,38 +259,21 @@ void SMaterialParameterRow::OnGroupCommitted(const FText& NewText, ETextCommit::
 
 void SMaterialParameterRow::OnPriorityCommitted(int32 NewValue, ETextCommit::Type CommitType)
 {
-	if (VM.IsValid() && NewValue != VM->SortPriority)
-	{
-		VM->SortPriority = NewValue;
-		VM->bDirty = true;
-		if (Session.IsValid()) Session->PushParamNow(VM);
-	}
+	if (VM.IsValid() && NewValue != VM->SortPriority) { VM->SortPriority = NewValue; VM->bDirty = true; if (Session.IsValid()) Session->PushParamNow(VM); }
 }
 
 void SMaterialParameterRow::OnNameCommitted(const FText& NewText, ETextCommit::Type CommitType)
 {
 	if (CommitType != ETextCommit::OnEnter && CommitType != ETextCommit::OnUserMovedFocus) return;
 	if (!VM.IsValid() || !VM->SourceExpression.IsValid() || !Session.IsValid()) return;
-
 	const FString NewNameStr = NewText.ToString();
 	if (NewNameStr.IsEmpty() || NewNameStr == VM->Name.ToString()) return;
-
-	// Rename the parameter on the source expression directly.
-	if (UMaterialExpressionParameter* ParamExpr = Cast<UMaterialExpressionParameter>(VM->SourceExpression.Get()))
-	{
+	if (UMaterialExpressionParameter* ParamExpr = Cast<UMaterialExpressionParameter>(VM->SourceExpression.Get())) {
 		const FName NewName(*NewNameStr);
-		if (ParamExpr->ParameterName != NewName)
-		{
+		if (ParamExpr->ParameterName != NewName) {
 			const FScopedTransaction Transaction(FText::FromString(TEXT("重命名材质参数")));
-			ParamExpr->Modify();
-			ParamExpr->ParameterName = NewName;
-			VM->Name = NewName;
-
-			if (UMaterial* Mat = Session->TargetMaterial.Get())
-			{
-				Mat->PostEditChange();
-				Mat->MarkPackageDirty();
-			}
+			ParamExpr->Modify(); ParamExpr->ParameterName = NewName; VM->Name = NewName;
+			if (UMaterial* Mat = Session->TargetMaterial.Get()) { Mat->PostEditChange(); Mat->MarkPackageDirty(); }
 		}
 	}
 }
@@ -358,20 +281,10 @@ void SMaterialParameterRow::OnNameCommitted(const FText& NewText, ETextCommit::T
 FText SMaterialParameterRow::MakeDiagnosticTooltip() const
 {
 	if (!VM.IsValid()) return FText::GetEmpty();
-
-	FString Tip = FString::Printf(TEXT("Name: %s"), *VM->Name.ToString());
-	Tip += FString::Printf(TEXT("\nType: %d"), static_cast<int32>(VM->Type));
-	Tip += FString::Printf(TEXT("\nGroup: %s"), *VM->Group.ToString());
-	Tip += FString::Printf(TEXT("\nSort Priority: %d"), VM->SortPriority);
-	Tip += FString::Printf(TEXT("\nUsage: %s"), *VM->GetUsageLabel().ToString());
-
-	if (VM->Usage == EMLPParameterUsage::Unused)
-		Tip += TEXT("\n\nWarning: this parameter is not connected to any output.");
-	if (VM->Usage == EMLPParameterUsage::HalfUsed)
-		Tip += TEXT("\n\nNote: half-used — connected via MaterialAttributes but not a direct output.");
-	if (VM->bHasDuplicateName)
-		Tip += TEXT("\n\nConflict: another parameter shares this name.");
-
+	FString Tip = FString::Printf(TEXT("Name: %s\nType: %d\nGroup: %s\nPriority: %d\nUsage: %s"),
+		*VM->Name.ToString(), static_cast<int32>(VM->Type), *VM->Group.ToString(), VM->SortPriority, *VM->GetUsageLabel().ToString());
+	if (VM->Usage == EMLPParameterUsage::Unused) Tip += TEXT("\n\n未连接到任何输出");
+	if (VM->bHasDuplicateName) Tip += TEXT("\n\n存在同名参数冲突");
 	return FText::FromString(Tip);
 }
 

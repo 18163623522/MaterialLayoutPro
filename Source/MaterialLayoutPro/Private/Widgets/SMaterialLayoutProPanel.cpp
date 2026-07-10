@@ -69,27 +69,21 @@ void SMaterialLayoutProPanel::Construct(const FArguments& InArgs)
 
 	ChildSlot
 	[
-		SNew(SBorder)
-		.BorderBackgroundColor(FMLPTheme::Background())
-		.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-		.Padding(FMargin(4.f, 4.f, 4.f, 4.f))
+		SNew(SVerticalBox)
+		+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(2.f, 2.f, 2.f, 2.f)) [ BuildToolbar() ]
+		+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(2.f, 0.f, 2.f, 2.f))
 		[
-			SNew(SVerticalBox)
-			+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(0,0,0,4)) [ BuildToolbar() ]
-			+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(0,0,0,4))
-			[
-				SAssignNew(SearchBox, SEditableTextBox)
-				.HintText(LOCTEXT("SearchHint", "搜索参数..."))
-				.Font(FMLPTheme::FontSmall())
-				.OnTextChanged(this, &SMaterialLayoutProPanel::OnSearchChanged)
-			]
-			+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(0,0,0,4)) [ BuildStatusBar() ]
-			+ SVerticalBox::Slot().FillHeight(1.0f)
-			[
-				SNew(SScrollBox)
-				+ SScrollBox::Slot() [ SAssignNew(TreeContainer, SVerticalBox) ]
-			]
+			SAssignNew(SearchBox, SEditableTextBox)
+			.HintText(LOCTEXT("SearchHint", "搜索参数..."))
+			.Font(FMLPTheme::FontSmall())
+			.OnTextChanged(this, &SMaterialLayoutProPanel::OnSearchChanged)
 		]
+		+ SVerticalBox::Slot().FillHeight(1.0f)
+		[
+			SNew(SScrollBox)
+			+ SScrollBox::Slot() [ SAssignNew(TreeContainer, SVerticalBox) ]
+		]
+		+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(2.f, 2.f, 2.f, 2.f)) [ BuildStatusBar() ]
 	];
 
 	// Subscribe to session writes — when a value is pushed back to the material,
@@ -292,19 +286,13 @@ void SMaterialLayoutProPanel::RebuildTree()
 		}
 		if (VisibleCount == 0) continue;
 
-		// Group header.
-		TreeContainer->AddSlot().AutoHeight().Padding(FMargin(0.f, 4.f, 0.f, 1.f))
+		// Group header — compact, muted (original-style: small gray text, no colored bar).
+		TreeContainer->AddSlot().AutoHeight().Padding(FMargin(2.f, 6.f, 0.f, 2.f))
 		[
-			SNew(SBorder)
-			.BorderBackgroundColor(FLinearColor(FMLPTheme::Accent().R, FMLPTheme::Accent().G, FMLPTheme::Accent().B, 0.18f))
-			.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-			.Padding(FMargin(6.f, 3.f))
-			[
-				SNew(STextBlock)
-				.Text(FText::FromString(FString::Printf(TEXT("▼ %s (%d)"), *Group->Name.ToString(), VisibleCount)))
-				.Font(FMLPTheme::FontHeading())
-				.ColorAndOpacity(FMLPTheme::Foreground())
-			]
+			SNew(STextBlock)
+			.Text(FText::FromString(FString::Printf(TEXT("%s  (%d)"), *Group->Name.ToString(), VisibleCount)))
+			.Font(FMLPTheme::FontSmall())
+			.ColorAndOpacity(FMLPTheme::Muted())
 		];
 
 		// Inline parameter rows (detail mode = show group + priority editors).
@@ -459,14 +447,10 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 
 TSharedRef<SWidget> SMaterialLayoutProPanel::BuildStatusBar()
 {
-	return SNew(SBorder)
-		.BorderBackgroundColor(FLinearColor(FMLPTheme::SurfaceAlt().R,FMLPTheme::SurfaceAlt().G,FMLPTheme::SurfaceAlt().B,0.7f))
-		.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-		.Padding(FMargin(6,3))
-		[
-			SNew(SHorizontalBox)+SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
-			[ SNew(STextBlock).Text(this,&SMaterialLayoutProPanel::GetStatusText).Font(FMLPTheme::FontSmall()).ColorAndOpacity(FMLPTheme::Muted()) ]
-		];
+	return SNew(STextBlock)
+		.Text(this, &SMaterialLayoutProPanel::GetStatusText)
+		.Font(FMLPTheme::FontSmall())
+		.ColorAndOpacity(FMLPTheme::Muted());
 }
 
 // ============================================================================
