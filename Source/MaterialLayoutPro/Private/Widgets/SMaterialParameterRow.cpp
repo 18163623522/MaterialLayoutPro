@@ -222,21 +222,22 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 		return SNew(SHorizontalBox)
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
 			[
+				// SImage renders color directly via ColorAndOpacity — no border/background interference.
 				SNew(SBox).WidthOverride(28.f).HeightOverride(16.f)
 				[
-					SNew(SBorder)
-					.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-					// Use a solid color via the content, not the border — border tints can be
-					// overridden by child widget transparency. A plain SImage renders the color directly.
-					.Padding(0.f)
-					[
-						SNew(SImage)
-						.Image(FCoreStyle::Get().GetBrush("WhiteBrush"))
-						.ColorAndOpacity_Lambda([WeakVM]() -> FLinearColor {
-							if (auto V = WeakVM.Pin()) return V->VectorValue;
-							return FLinearColor::White;
-						})
-					]
+					SNew(SImage)
+					.Image(FCoreStyle::Get().GetBrush("WhiteBrush"))
+					.ColorAndOpacity_Lambda([WeakVM]() -> FLinearColor {
+						if (auto V = WeakVM.Pin())
+						{
+							// Force opaque — 4.26 VectorParameter DefaultValue often has A=0,
+							// which makes the swatch invisible (transparent).
+							FLinearColor C = V->VectorValue;
+							if (C.A <= 0.001f) C.A = 1.0f;
+							return C;
+						}
+						return FLinearColor::White;
+					})
 					.OnMouseButtonDown_Lambda([this, WeakVM](const FGeometry&, const FPointerEvent& MouseEvent) -> FReply {
 						if (MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) return FReply::Unhandled();
 						auto V = WeakVM.Pin();

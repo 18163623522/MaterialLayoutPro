@@ -41,6 +41,8 @@ void FMLPParamVM::PullFromExpression()
     else if (UMaterialExpressionVectorParameter* V = Cast<UMaterialExpressionVectorParameter>(Expr))
     {
         VectorValue = V->DefaultValue;
+        UE_LOG(LogTemp, Warning, TEXT("[MLP] Pull Vector '%s' = R=%.2f G=%.2f B=%.2f A=%.2f (type=%d)"),
+            *Name.ToString(), V->DefaultValue.R, V->DefaultValue.G, V->DefaultValue.B, V->DefaultValue.A, (int32)Type);
     }
     else if (UMaterialExpressionTextureSampleParameter* TS = Cast<UMaterialExpressionTextureSampleParameter>(Expr))
     {
