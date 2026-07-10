@@ -91,6 +91,32 @@ void FMaterialParameterUsageAnalyzer::Analyze(UMaterial* Material, TArray<TShare
 		}
 	}
 
+	// Also scan the UMaterial's own root input properties (BaseColor, Roughness, Normal,
+	// EmissiveColor, etc.). These use FMaterialInput (derives from FExpressionInput) — they
+	// connect parameters directly to material outputs, but are NOT inside the Expressions array,
+	// so the loop above misses them. Without this, used parameters appear "Unused".
+	for (TFieldIterator<FProperty> PropIt(Material->GetClass()); PropIt; ++PropIt)
+	{
+		FProperty* Property = *PropIt;
+		if (FStructProperty* StructProp = CastField<FStructProperty>(Property))
+		{
+			// FMaterialInput / FColorMaterialInput / FScalarMaterialInput / FVectorMaterialInput
+			// all derive from FExpressionInput and carry the same Expression field.
+			const FName StructName = StructProp->Struct->GetFName();
+			if (StructName == FName(TEXT("MaterialInput")) ||
+				StructName == FName(TEXT("ColorMaterialInput")) ||
+				StructName == FName(TEXT("ScalarMaterialInput")) ||
+				StructName == FName(TEXT("VectorMaterialInput")))
+			{
+				FExpressionInput* Input = StructProp->ContainerPtrToValuePtr<FExpressionInput>(Material);
+				if (Input && Input->Expression)
+				{
+					ConnectedSet.Add(Input->Expression);
+				}
+			}
+		}
+	}
+
 	// Now classify each parameter with O(1) set lookups instead of re-scanning.
 	for (TSharedPtr<FMLPParameterInfo>& Param : Parameters)
 	{

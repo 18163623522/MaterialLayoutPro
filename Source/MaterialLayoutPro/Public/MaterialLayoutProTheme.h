@@ -78,12 +78,12 @@ public:
 	static const FLinearColor& TypeTexture() { static const FLinearColor V(0.000f, 0.733f, 0.996f, 1.0f); return V; }
 	static const FLinearColor& TypeStatic() { static const FLinearColor V(0.741f, 0.741f, 0.741f, 1.0f); return V; }
 
-	// Status badge colors.
-	static const FLinearColor& StatusUsed() { return TypeScalar(); }
-	static const FLinearColor& StatusUnused() { return Destructive(); }
-	static const FLinearColor& StatusHalfUsed() { return Warning(); }
-	static const FLinearColor& StatusIndirect() { static const FLinearColor V(0.957f, 0.537f, 0.267f, 1.0f); return V; }
-	static const FLinearColor& StatusUnknown() { static const FLinearColor V(0.541f, 0.541f, 0.541f, 1.0f); return V; }
+	// Status colors — distinct from type pin colors (blue=used, gray=unused, amber=half).
+	static const FLinearColor& StatusUsed() { static const FLinearColor V(0.200f, 0.600f, 1.000f, 1.0f); return V; }       // blue
+	static const FLinearColor& StatusUnused() { static const FLinearColor V(0.420f, 0.420f, 0.420f, 1.0f); return V; }     // gray
+	static const FLinearColor& StatusHalfUsed() { static const FLinearColor V(0.941f, 0.620f, 0.043f, 1.0f); return V; }   // amber
+	static const FLinearColor& StatusIndirect() { static const FLinearColor V(0.700f, 0.400f, 0.900f, 1.0f); return V; }   // purple
+	static const FLinearColor& StatusUnknown() { static const FLinearColor V(0.300f, 0.300f, 0.300f, 1.0f); return V; }    // dark gray
 
 	static const FLinearColor& Overlay() { static const FLinearColor V(0.020f, 0.020f, 0.020f, 0.92f); return V; }
 
