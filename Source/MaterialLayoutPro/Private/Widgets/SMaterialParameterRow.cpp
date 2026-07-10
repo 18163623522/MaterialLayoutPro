@@ -177,17 +177,22 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 
 FReply SMaterialParameterRow::OnPreviewMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
-	// Preview fires BEFORE child widgets get the click. This is the ONLY reliable
-	// place to intercept Ctrl/Shift+click for multi-select - otherwise editable text
-	// boxes, numeric spinners, etc. swallow the event and OnMouseButtonDown never fires.
-	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton &&
-		(MouseEvent.IsControlDown() || MouseEvent.IsShiftDown()))
+	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
-		OnClickedDelegate.ExecuteIfBound(VM, MouseEvent.IsControlDown(), MouseEvent.IsShiftDown());
-		return FReply::Handled(); // consume - prevent child widgets from also reacting
+		const bool bCtrl = MouseEvent.IsControlDown();
+		const bool bShift = MouseEvent.IsShiftDown();
+
+		if (bCtrl || bShift)
+		{
+			// Multi-select: intercept and consume so children don't react.
+			OnClickedDelegate.ExecuteIfBound(VM, bCtrl, bShift);
+			return FReply::Handled();
+		}
+		// Plain click: fire selection but DON'T consume - let children (text boxes,
+		// value editors) also receive the click for editing. This way both selection
+		// and editing work on a single click.
+		OnClickedDelegate.ExecuteIfBound(VM, false, false);
 	}
-	// No modifier: fall through so children handle their own clicks normally,
-	// and OnMouseButtonDown handles plain row-click selection.
 	return SCompoundWidget::OnPreviewMouseButtonDown(MyGeometry, MouseEvent);
 }
 

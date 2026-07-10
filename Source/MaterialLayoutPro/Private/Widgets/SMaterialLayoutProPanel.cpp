@@ -217,7 +217,7 @@ void SMaterialLayoutProPanel::Tick(const FGeometry& AllottedGeometry, double InC
 	// --- Graph→Panel selection sync (every frame, cheap) ---
 	// When the user selects nodes in the material graph, highlight the matching row.
 	// Skip for a short cooldown after a panel→graph sync to avoid feedback loops.
-	if (OwningMaterialEditor.IsValid() && InCurrentTime > SyncCooldownUntil)
+	if (OwningMaterialEditor.IsValid() && InCurrentTime > SyncCooldownUntil && SelectedParams.Num() <= 1)
 	{
 		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
 		if (Editor.IsValid() && Session.IsValid())
@@ -356,6 +356,8 @@ void SMaterialLayoutProPanel::RebuildTree()
 
 void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bCtrl, bool bShift)
 {
+	UE_LOG(LogTemp, Warning, TEXT("[MLP-Sel] SelectParam bCtrl=%d bShift=%d Param=%s"), bCtrl, bShift, Param.IsValid() ? *Param->Name.ToString() : TEXT("null"));
+
 	if (!Param.IsValid())
 	{
 		ClearSelection();
@@ -402,7 +404,9 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bC
 	LastSelectedParam = Param;
 	RebuildTree();
 
-	// Sync first selected to the material graph.
+	// Sync to material graph. JumpToExpression causes the graph to pan/zoom to the
+	// node - only do that for single select. Multi-select (Ctrl/Shift) just adds to
+	// selection without jumping, so the viewport doesn't jump around.
 	if (Param->SourceExpression.IsValid() && OwningMaterialEditor.IsValid())
 	{
 		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
@@ -410,7 +414,10 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bC
 		{
 			SyncCooldownUntil = FSlateApplication::Get().GetCurrentTime() + 0.5;
 			Editor->AddToSelection(Param->SourceExpression.Get());
-			Editor->JumpToExpression(Param->SourceExpression.Get());
+			if (!bCtrl && !bShift)
+			{
+				Editor->JumpToExpression(Param->SourceExpression.Get());
+			}
 		}
 	}
 }
