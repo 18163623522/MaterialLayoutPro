@@ -9,6 +9,9 @@ class FMLPSession;
 /** Broadcast when the row is clicked. bCtrl=toggle, bShift=range. */
 DECLARE_DELEGATE_ThreeParams(FOnRowClicked, TSharedPtr<FMLPParamVM>, bool /*bCtrl*/, bool /*bShift*/);
 
+/** Broadcast when the row is double-clicked (jump to node in graph). */
+DECLARE_DELEGATE_OneParam(FOnRowDoubleClicked, TSharedPtr<FMLPParamVM>);
+
 /** Broadcast when a param is dropped onto this row. bInsertBefore=insert above, false=insert below. */
 DECLARE_DELEGATE_ThreeParams(FOnParamDropped, TSharedPtr<FMLPParamVM> /*Dragged*/, TSharedPtr<FMLPParamVM> /*Target*/, bool /*bInsertBefore*/);
 
@@ -24,6 +27,7 @@ public:
 		SLATE_ARGUMENT(bool, bSelected)
 		SLATE_ARGUMENT(bool, bDetailMode)
 		SLATE_EVENT(FOnRowClicked, OnClicked)
+		SLATE_EVENT(FOnRowDoubleClicked, OnDoubleClicked)
 		SLATE_EVENT(FOnParamDropped, OnParamDropped)
 	SLATE_END_ARGS()
 
@@ -32,6 +36,7 @@ public:
 	/** Preview - fires BEFORE child widgets. Intercept Ctrl/Shift+click for multi-select. */
 	virtual FReply OnPreviewMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
 	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
+	virtual FReply OnMouseButtonDoubleClick(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
 	virtual FReply OnDragDetected(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
 
 	// --- Drag-drop overrides ---
@@ -45,6 +50,7 @@ private:
 	bool bSelected = false;
 	bool bDetailMode = false;
 	FOnRowClicked OnClickedDelegate;
+	FOnRowDoubleClicked OnDoubleClickedDelegate;
 	FOnParamDropped OnParamDroppedDelegate;
 
 	// Drop target visual state

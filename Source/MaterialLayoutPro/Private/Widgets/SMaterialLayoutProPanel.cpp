@@ -345,6 +345,7 @@ void SMaterialLayoutProPanel::RebuildTree()
 				.bSelected(bSel)
 				.bDetailMode(true)
 				.OnClicked(FOnRowClicked::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::SelectParam))
+				.OnDoubleClicked(FOnRowDoubleClicked::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::JumpToParam))
 				.OnParamDropped(FOnParamDropped::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::OnParamDropped))
 			];
 		}
@@ -357,8 +358,6 @@ void SMaterialLayoutProPanel::RebuildTree()
 
 void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bCtrl, bool bShift)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[MLP-Sel] SelectParam bCtrl=%d bShift=%d Param=%s"), bCtrl, bShift, Param.IsValid() ? *Param->Name.ToString() : TEXT("null"));
-
 	if (!Param.IsValid())
 	{
 		ClearSelection();
@@ -405,9 +404,8 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bC
 	LastSelectedParam = Param;
 	RebuildTree();
 
-	// Sync to material graph. JumpToExpression causes the graph to pan/zoom to the
-	// node - only do that for single select. Multi-select (Ctrl/Shift) just adds to
-	// selection without jumping, so the viewport doesn't jump around.
+	// Sync selection to material graph (without jumping/panning the viewport).
+	// JumpToExpression is only triggered on double-click (OnMouseButtonDoubleClick in the row).
 	if (Param->SourceExpression.IsValid() && OwningMaterialEditor.IsValid())
 	{
 		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
@@ -415,11 +413,19 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bC
 		{
 			SyncCooldownUntil = FSlateApplication::Get().GetCurrentTime() + 0.5;
 			Editor->AddToSelection(Param->SourceExpression.Get());
-			if (!bCtrl && !bShift)
-			{
-				Editor->JumpToExpression(Param->SourceExpression.Get());
-			}
 		}
+	}
+}
+
+void SMaterialLayoutProPanel::JumpToParam(TSharedPtr<FMLPParamVM> Param)
+{
+	if (!Param.IsValid() || !Param->SourceExpression.IsValid() || !OwningMaterialEditor.IsValid())
+		return;
+	TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
+	if (Editor.IsValid())
+	{
+		SyncCooldownUntil = FSlateApplication::Get().GetCurrentTime() + 0.5;
+		Editor->JumpToExpression(Param->SourceExpression.Get());
 	}
 }
 

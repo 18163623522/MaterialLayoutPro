@@ -37,6 +37,7 @@ private:
 
 	// --- Selection (multi-select) ---
 	void SelectParam(TSharedPtr<FMLPParamVM> Param, bool bCtrl, bool bShift);
+	void JumpToParam(TSharedPtr<FMLPParamVM> Param);
 	void ClearSelection();
 	bool IsSelected(TSharedPtr<FMLPParamVM> Param) const;
 

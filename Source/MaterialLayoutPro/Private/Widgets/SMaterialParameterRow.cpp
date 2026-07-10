@@ -38,6 +38,7 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 	bSelected = InArgs._bSelected;
 	bDetailMode = InArgs._bDetailMode;
 	OnClickedDelegate = InArgs._OnClicked;
+	OnDoubleClickedDelegate = InArgs._OnDoubleClicked;
 	OnParamDroppedDelegate = InArgs._OnParamDropped;
 
 	if (!VM.IsValid())
@@ -256,6 +257,17 @@ FReply SMaterialParameterRow::OnMouseButtonDown(const FGeometry& MyGeometry, con
 	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
 		OnClickedDelegate.ExecuteIfBound(VM, false, false);
+	}
+	return FReply::Unhandled();
+}
+
+FReply SMaterialParameterRow::OnMouseButtonDoubleClick(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+{
+	// Double-click jumps to the node in the material graph.
+	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && VM.IsValid())
+	{
+		OnDoubleClickedDelegate.ExecuteIfBound(VM);
+		return FReply::Handled();
 	}
 	return FReply::Unhandled();
 }
