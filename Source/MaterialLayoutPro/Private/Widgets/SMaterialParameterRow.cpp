@@ -202,26 +202,30 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 	}
 	case EMLPParameterType::Vector:
 	{
-		return SNew(SColorBlock)
-			.Color_Lambda([WeakVM]() -> FLinearColor {
-				if (auto V = WeakVM.Pin()) return V->VectorValue;
-				return FLinearColor::White;
-			})
-			.OnMouseButtonDown_Lambda([this, WeakVM](const FGeometry&, const FPointerEvent& MouseEvent) -> FReply {
-				if (MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) return FReply::Unhandled();
-				auto V = WeakVM.Pin();
-				if (!V.IsValid()) return FReply::Unhandled();
-				FColorPickerArgs Args;
-				Args.bUseAlpha = true;
+		// Wrap the color block in a fixed-size box so it's easy to click.
+		return SNew(SBox).WidthOverride(40.f).HeightOverride(18.f).VAlign(VAlign_Center)
+			[
+				SNew(SColorBlock)
+				.Color_Lambda([WeakVM]() -> FLinearColor {
+					if (auto V = WeakVM.Pin()) return V->VectorValue;
+					return FLinearColor::White;
+				})
+				.OnMouseButtonDown_Lambda([this, WeakVM](const FGeometry&, const FPointerEvent& MouseEvent) -> FReply {
+					if (MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) return FReply::Unhandled();
+					auto V = WeakVM.Pin();
+					if (!V.IsValid()) return FReply::Unhandled();
+					FColorPickerArgs Args;
+					Args.bUseAlpha = true;
 #if ENGINE_MAJOR_VERSION >= 5
-				Args.InitialColor = V->VectorValue;
+					Args.InitialColor = V->VectorValue;
 #else
-				Args.InitialColorOverride = V->VectorValue;
+					Args.InitialColorOverride = V->VectorValue;
 #endif
-				Args.OnColorCommitted = FOnLinearColorValueChanged::CreateLambda([this, V](FLinearColor NewColor) { OnVectorChanged(NewColor); });
-				OpenColorPicker(Args);
-				return FReply::Handled();
-			});
+					Args.OnColorCommitted = FOnLinearColorValueChanged::CreateLambda([this, V](FLinearColor NewColor) { OnVectorChanged(NewColor); });
+					OpenColorPicker(Args);
+					return FReply::Handled();
+				})
+			];
 	}
 	case EMLPParameterType::Texture:
 	{
