@@ -15,6 +15,7 @@
 #include "GraphEditorModule.h"
 #include "Framework/MultiBox/MultiBoxExtender.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
+#include "Framework/Commands/UIAction.h"
 #include "EdGraphNode_Comment.h"
 #include "MaterialGraph/MaterialGraph.h"
 #include "Materials/Material.h"
@@ -168,49 +169,9 @@ void FMaterialLayoutProModule::RegisterMenus()
 			FSlateIcon(FMaterialLayoutProStyle::GetStyleSetName(), "MaterialLayoutPro.OpenPanel"));
 	}
 
-	// Add a "参数布局" button to the Material Editor and Material Instance Editor toolbars.
-	// Clicking it invokes the embedded sidebar tab in the editor that owns the toolbar.
-	auto AddSidebarToolbarButton = [this](const FName& MenuName)
-	{
-		UToolMenu* ToolbarMenu = UToolMenus::Get()->ExtendMenu(MenuName);
-		if (!ToolbarMenu)
-		{
-			return;
-		}
-		FToolMenuSection& Section = ToolbarMenu->FindOrAddSection("Asset");
-		Section.AddEntry(FToolMenuEntry::InitToolBarButton(
-			"MaterialLayoutPro.ToggleSidebar",
-			FExecuteAction::CreateLambda([]()
-			{
-				// Find the currently active material editor and toggle its sidebar tab.
-				if (UAssetEditorSubsystem* AssetEditorSS = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr)
-				{
-					TArray<UObject*> EditedAssets = AssetEditorSS->GetAllEditedAssets();
-					for (UObject* Asset : EditedAssets)
-					{
-						if (Asset && Asset->IsA<UMaterialInterface>())
-						{
-							if (IAssetEditorInstance* EditorInstance = AssetEditorSS->FindEditorForAsset(Asset, false))
-							{
-								if (FAssetEditorToolkit* Toolkit = static_cast<FAssetEditorToolkit*>(EditorInstance))
-								{
-									if (TSharedPtr<FTabManager> TabManager = Toolkit->GetTabManager())
-									{
-										TabManager->TryInvokeTab(FMaterialLayoutProModule::EmbeddedTabId);
-									}
-								}
-							}
-						}
-					}
-				}
-			}),
-			LOCTEXT("ToolbarSidebarButton", "参数布局"),
-			LOCTEXT("ToolbarSidebarButtonTip", "打开/聚焦参数布局侧边栏"),
-			FSlateIcon(FMaterialLayoutProStyle::GetStyleSetName(), "MaterialLayoutPro.OpenPanel")));
-	};
-
-	AddSidebarToolbarButton("AssetEditor.MaterialEditorApp.ToolBar");
-	AddSidebarToolbarButton("AssetEditor.MaterialInstanceEditorApp.ToolBar");
+	// NOTE: toolbar buttons for the material/instance editors are added per-editor in
+	// RegisterEmbeddedSidebar (via GetToolBarExtensibilityManager), not here — the material
+	// editor's toolbar menu doesn't exist at module-startup time.
 }
 
 // ============================================================================
@@ -261,6 +222,35 @@ void FMaterialLayoutProModule::RegisterEmbeddedSidebar(IMaterialEditor* InMateri
 	TabManager->RegisterTabSpawner(EmbeddedTabId, FOnSpawnTab::CreateRaw(this, &FMaterialLayoutProModule::OnSpawnEmbeddedTab, WeakEditor))
 		.SetDisplayName(TabLabel)
 		.SetMenuType(ETabSpawnerMenuType::Enabled); // Enabled so it appears in the editor's Window menu as a fallback.
+
+	// Add a toolbar button to this editor (more reliable than ToolMenus at module-startup time,
+	// because the material editor's toolbar only exists after the editor initializes).
+	TSharedPtr<FExtender> ToolbarExtender = MakeShareable(new FExtender());
+	ToolbarExtender->AddToolBarExtension(
+		"Asset",
+		EExtensionHook::After,
+		nullptr, // no command list — the button uses a direct lambda
+		FToolBarExtensionDelegate::CreateLambda([WeakEditor](FToolBarBuilder& Builder)
+		{
+			Builder.AddToolBarButton(
+				FUIAction(FExecuteAction::CreateLambda([WeakEditor]()
+				{
+					auto Editor = WeakEditor.Pin();
+					if (Editor.IsValid())
+					{
+						if (TSharedPtr<FTabManager> TM = StaticCastSharedPtr<IMaterialEditor>(Editor)->GetTabManager())
+						{
+							TM->TryInvokeTab(FMaterialLayoutProModule::EmbeddedTabId);
+						}
+					}
+				})),
+				NAME_None,
+				LOCTEXT("ToolbarSidebarButton", "参数布局"),
+				LOCTEXT("ToolbarSidebarButtonTip", "打开/聚焦参数布局侧边栏"),
+				FSlateIcon(FMaterialLayoutProStyle::GetStyleSetName(), "MaterialLayoutPro.OpenPanel"));
+		}));
+	InMaterialEditor->GetToolBarExtensibilityManager()->AddExtender(ToolbarExtender);
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] RegisterEmbeddedSidebar: toolbar extender added"));
 
 	// Invoke the tab so it opens automatically beside the graph canvas.
 	TSharedPtr<SDockTab> InvokedTab = TabManager->TryInvokeTab(EmbeddedTabId);
