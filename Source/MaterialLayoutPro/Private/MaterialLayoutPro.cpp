@@ -44,8 +44,6 @@ void FMaterialLayoutProModule::StartupModule()
 {
 	bIsShuttingDown = false;
 
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] ========== Module StartupModule START =========="));
-
 	RegisterStyle();
 	RegisterCommands();
 
@@ -64,23 +62,17 @@ void FMaterialLayoutProModule::StartupModule()
 			FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FMaterialLayoutProModule::RegisterMenus));
 	}
 
-	// Hook into ANY asset-editor open event (more reliable than IMaterialEditorModule events,
-	// which don't always fire for all editor-open code paths in 4.26). Filter for materials inside.
+	// Hook into ANY asset-editor open event. Filter for materials inside.
 	FAssetEditorManager::Get().OnAssetOpenedInEditor().AddRaw(this, &FMaterialLayoutProModule::OnAssetOpenedInEditor);
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] StartupModule: bound OnAssetOpenedInEditor"));
 
-	// Add a toolbar extender at the MODULE level (IMaterialEditorModule::GetToolBarExtensibilityManager).
-	// FMaterialEditor::ExtendToolbar() collects from this manager when building its toolbar, so every
-	// material/material-instance editor will get the button automatically — no timing issues.
+	// Add a toolbar extender at the MODULE level - every material/material-instance editor gets the button.
 	RegisterMaterialEditorToolbarExtender();
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] StartupModule: registered module-level toolbar extender"));
 
 	// Graph context-menu extender for "Sync Comment to Group".
 	FGraphEditorModule& GraphEditorModule = FModuleManager::LoadModuleChecked<FGraphEditorModule>("GraphEditor");
 	GraphEditorModule.GetAllGraphEditorContextMenuExtender().Add(
 		FGraphEditorModule::FGraphEditorMenuExtender_SelectedNode::CreateRaw(this, &FMaterialLayoutProModule::GetGraphContextMenuExtender));
 
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] ========== Module StartupModule END =========="));
 }
 
 void FMaterialLayoutProModule::ShutdownModule()
@@ -378,7 +370,6 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 
 	IMaterialEditorModule& MaterialEditorModule = IMaterialEditorModule::Get();
 	MaterialEditorModule.GetToolBarExtensibilityManager()->AddExtender(MaterialEditorToolbarExtender);
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] RegisterMaterialEditorToolbarExtender: added to module toolbar manager"));
 }
 
 // ============================================================================
@@ -387,61 +378,40 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 
 void FMaterialLayoutProModule::OnAssetOpenedInEditor(UObject* Asset, IAssetEditorInstance* Instance)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnAssetOpenedInEditor: asset=%s"), Asset ? *Asset->GetName() : TEXT("null"));
-
-	// Only act on materials / material instances.
 	if (!Asset || !Instance) return;
 	if (!Asset->IsA<UMaterialInterface>()) return;
 
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnAssetOpenedInEditor: material detected, casting"));
-
-	// The instance IS the material editor (IMaterialEditor derives from FAssetEditorToolkit
-	// which implements IAssetEditorInstance). static_cast down.
 	IMaterialEditor* MatEditor = static_cast<IMaterialEditor*>(Instance);
-
 	RegisterEmbeddedSidebar(MatEditor);
 }
 
 void FMaterialLayoutProModule::RegisterEmbeddedSidebar(IMaterialEditor* InMaterialEditor)
 {
-	if (!InMaterialEditor)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[MLP] RegisterEmbeddedSidebar: null editor"));
-		return;
-	}
+	if (!InMaterialEditor) return;
 
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] RegisterEmbeddedSidebar: editor valid, getting TabManager"));
-
-	// Recover a weak ptr to the editor via SharedFromThis (FAAssetEditorToolkit derives from it).
 	FAssetEditorToolkit* AsToolkit = static_cast<FAssetEditorToolkit*>(InMaterialEditor);
 	TWeakPtr<IMaterialEditor> WeakEditor = StaticCastSharedRef<IMaterialEditor>(AsToolkit->AsShared());
 
 	TSharedPtr<FTabManager> TabManager = AsToolkit->GetTabManager();
-	if (!TabManager.IsValid())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[MLP] RegisterEmbeddedSidebar: TabManager invalid"));
-		return;
-	}
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] RegisterEmbeddedSidebar: TabManager valid, registering spawner"));
+	if (!TabManager.IsValid()) return;
 
-	// Register a sidebar tab spawner on this editor's tab manager.
-	const FText TabLabel = LOCTEXT("SidebarTabLabel", "参数布局");
+	// Idempotent: only register if not already registered for this TabManager.
+	// UnregisterTabSpawner is safe to call even if not registered.
+	TabManager->UnregisterTabSpawner(EmbeddedTabId);
 	TabManager->RegisterTabSpawner(EmbeddedTabId, FOnSpawnTab::CreateRaw(this, &FMaterialLayoutProModule::OnSpawnEmbeddedTab, WeakEditor))
-		.SetDisplayName(TabLabel)
-		.SetMenuType(ETabSpawnerMenuType::Enabled); // Enabled so it appears in the editor's Window menu as a fallback.
+		.SetDisplayName(LOCTEXT("SidebarTabLabel", "参数布局"))
+		.SetMenuType(ETabSpawnerMenuType::Enabled);
 
-	// NOTE: toolbar button is added at the module level (RegisterMaterialEditorToolbarExtender),
-	// which FMaterialEditor::ExtendToolbar collects automatically. No per-editor extender needed.
-
-	// Invoke the tab so it opens automatically beside the graph canvas.
-	TSharedPtr<SDockTab> InvokedTab = TabManager->TryInvokeTab(EmbeddedTabId);
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] RegisterEmbeddedSidebar: TryInvokeTab result = %s"), InvokedTab.IsValid() ? TEXT("OK") : TEXT("NULL"));
+	// Auto-open on first registration only.
+	TSharedPtr<SDockTab> ExistingTab = TabManager->FindExistingLiveTab(EmbeddedTabId);
+	if (!ExistingTab.IsValid())
+	{
+		TabManager->TryInvokeTab(EmbeddedTabId);
+	}
 }
 
 TSharedRef<SDockTab> FMaterialLayoutProModule::OnSpawnEmbeddedTab(const FSpawnTabArgs& Args, TWeakPtr<IMaterialEditor> InMaterialEditor)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnSpawnEmbeddedTab: spawning sidebar tab"));
-
 	TSharedRef<SDockTab> Tab = SNew(SDockTab)
 		.TabRole(ETabRole::PanelTab)
 		.Label(LOCTEXT("SidebarTabTitle", "参数布局"));
