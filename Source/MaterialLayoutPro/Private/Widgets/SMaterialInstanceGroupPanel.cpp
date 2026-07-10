@@ -238,6 +238,16 @@ void SMaterialInstanceGroupPanel::PullFromInstance()
 			(*G)->SortPriority = i;
 			Groups.Add(*G);
 		}
+		else
+		{
+			// Group exists in the custom GroupOrder but has no parameters yet (e.g. just
+			// created via "新建分组"). Show it as an empty group so the user can move
+			// params into it via the per-row group dropdown.
+			auto EmptyGroup = MakeShared<FMLPInstanceGroupVM>();
+			EmptyGroup->Name = Order[i];
+			EmptyGroup->SortPriority = i;
+			Groups.Add(EmptyGroup);
+		}
 	}
 
 	// Sort params within each group by ParamSort (AssetUserData), then by name.
@@ -306,6 +316,12 @@ TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildToolbar()
 		+ SHorizontalBox::Slot().AutoWidth()
 		[
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("AG", "新建分组")).ToolTipText(LOCTEXT("AGT", "新建一个空分组(可在参数行的组下拉里把参数移过来)"))
+			.OnClicked(this, &SMaterialInstanceGroupPanel::OnAddGroupClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("R", "刷新")).ToolTipText(LOCTEXT("RT", "重新扫描参数"))
 			.OnClicked(this, &SMaterialInstanceGroupPanel::OnRefreshClicked)
 		];
@@ -356,7 +372,9 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 
 	for (const auto& Group : Groups)
 	{
-		if (!Group.IsValid() || Group->Parameters.Num() == 0) continue;
+		if (!Group.IsValid()) continue;
+		// NOTE: empty groups (just created via "新建分组") are NOT skipped — render the
+		// title bar + an empty hint so the user can move params into it.
 
 		const FName GroupName = Group->Name;
 		const int32 SortPrio = Group->SortPriority;
@@ -388,10 +406,30 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 				]
 				+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center).Padding(FMargin(6, 0, 0, 0))
 				[
-					SNew(STextBlock)
-					.Text(FText::FromString(FString::Printf(TEXT("%s  (%d)"), *GroupName.ToString(), Group->Parameters.Num())))
-					.Font(FMLPTheme::FontHeading())
-					.ColorAndOpacity(FMLPTheme::Foreground())
+					// Editable group name — click/double-click to rename. Shows count in tooltip.
+					// Rename writes AssetUserData only (never the parent material's expression Group).
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+					[
+						SNew(SEditableTextBox)
+						.Text(FText::FromName(GroupName))
+						.Font(FMLPTheme::FontHeading())
+						.ForegroundColor(FMLPTheme::Foreground())
+						.SelectAllTextWhenFocused(true)
+						.IsReadOnly(false)
+						.ToolTipText(FText::FromString(FString::Printf(TEXT("%d 个参数"), Group->Parameters.Num())))
+						.OnTextCommitted_Lambda([WeakSelf, GroupName](const FText& NewName, ETextCommit::Type CommitType)
+						{
+							if (auto Self = WeakSelf.Pin()) Self->OnGroupRenamed(GroupName, NewName, CommitType);
+						})
+					]
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(4, 0, 0, 0))
+					[
+						SNew(STextBlock)
+						.Text(FText::FromString(FString::Printf(TEXT("(%d)"), Group->Parameters.Num())))
+						.Font(FMLPTheme::FontSmall())
+						.ColorAndOpacity(FMLPTheme::Muted())
+					]
 				]
 			]
 		];
@@ -613,6 +651,18 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 				]
 			];
 		}
+
+		// Empty group hint — show when a group has no params (e.g. just created).
+		if (Group->Parameters.Num() == 0)
+		{
+			ContentBox->AddSlot().AutoHeight().Padding(FMargin(8, 2))
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("EmptyGroupHint", "该分组没有参数(用参数行的组下拉把参数移过来)"))
+				.Font(FMLPTheme::FontSmall())
+				.ColorAndOpacity(FMLPTheme::Muted())
+			];
+		}
 	}
 }
 
@@ -657,6 +707,51 @@ void SMaterialInstanceGroupPanel::OnGroupSortChanged(FName GroupName, int32 NewP
 
 	PullFromInstance();
 	RebuildInstanceContent();
+}
+
+void SMaterialInstanceGroupPanel::OnGroupRenamed(FName OldName, const FText& NewName, ETextCommit::Type CommitType)
+{
+	// Only commit on Enter / focus loss (not on every keystroke).
+	if (CommitType != ETextCommit::OnEnter && CommitType != ETextCommit::OnUserMovedFocus) return;
+	if (!GroupData.IsValid()) return;
+
+	const FString NewStr = NewName.ToString().TrimStartAndEnd();
+	if (NewStr.IsEmpty() || NewStr == OldName.ToString()) return;
+
+	FName NewNameF(*NewStr);
+	if (NewNameF == OldName) return;
+
+	GroupData.Get()->RenameGroup(OldName, NewNameF);
+	GroupData.Get()->Save(TargetInstance.Get());
+
+	PullFromInstance();
+	RebuildInstanceContent();
+}
+
+FReply SMaterialInstanceGroupPanel::OnAddGroupClicked()
+{
+	if (!GroupData.IsValid() || !TargetInstance.IsValid()) return FReply::Handled();
+
+	// Generate a unique new group name ("Group1", "Group2", ...).
+	FName NewName;
+	int32 Suffix = 1;
+	TArray<FName> Existing;
+	for (const auto& G : Groups) Existing.Add(G->Name);
+	do
+	{
+		NewName = FName(*FString::Printf(TEXT("Group%d"), Suffix++));
+	} while (Existing.Contains(NewName) || GroupData->GetGroupOrder().Contains(NewName));
+
+	// Append to the custom group order so the new group is registered (even though it has no
+	// params yet, it'll appear as an empty group the user can move params into).
+	TArray<FName> Order = GroupData->GetGroupOrder();
+	Order.Add(NewName);
+	GroupData.Get()->SetGroupOrder(Order);
+	GroupData.Get()->Save(TargetInstance.Get());
+
+	PullFromInstance();
+	RebuildInstanceContent();
+	return FReply::Handled();
 }
 
 void SMaterialInstanceGroupPanel::OnToggleOverride(TSharedPtr<FMLPInstanceParamVM> Param)

@@ -83,6 +83,10 @@ private:
 	void OnParamMovedToGroup(TSharedPtr<FMLPInstanceParamVM> Param, FName NewGroup);
 	/** Set the group-order sort priority for a group (reorders groups). */
 	void OnGroupSortChanged(FName GroupName, int32 NewPriority);
+	/** Rename a group (AssetUserData only — updates all params mapped to OldName). */
+	void OnGroupRenamed(FName OldName, const FText& NewName, ETextCommit::Type CommitType);
+	/** Add a new empty group to the custom group order (AssetUserData only). */
+	FReply OnAddGroupClicked();
 
 	// --- Override value handlers (write straight to the MI's typed value arrays) ---
 	void OnToggleOverride(TSharedPtr<FMLPInstanceParamVM> Param);
