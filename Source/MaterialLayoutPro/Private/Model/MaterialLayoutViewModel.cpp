@@ -256,6 +256,7 @@ void FMLPSession::PushDirty()
 
     Mat->PostEditChange();
     Mat->MarkPackageDirty();
+    MaterialChangedDelegate.Broadcast();
 }
 
 void FMLPSession::PushParamNow(TSharedPtr<FMLPParamVM> Param)
@@ -271,6 +272,7 @@ void FMLPSession::PushParamNow(TSharedPtr<FMLPParamVM> Param)
     Param->PushToExpression();
     Mat->PostEditChange();
     Mat->MarkPackageDirty();
+    MaterialChangedDelegate.Broadcast();
 }
 
 bool FMLPSession::HasDirty() const

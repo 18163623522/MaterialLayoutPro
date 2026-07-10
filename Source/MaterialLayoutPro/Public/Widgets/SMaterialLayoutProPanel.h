@@ -45,6 +45,8 @@ public:
 private:
 	// --- Selection source (embedded vs standalone) ---
 	void BindToMaterialEditor(TWeakPtr<IMaterialEditor> InEditor);
+	/** Called when the session writes back to the material — notifies the bound editor. */
+	void OnMaterialChangedBySession();
 	void OnSelectionChanged(UObject* Selection);
 	/** Resolve the current target material from the bound editor or GEditor selection. */
 	void ResolveTargetMaterial();
@@ -97,6 +99,9 @@ private:
 
 	// --- Search filter ---
 	FString SearchText;
+
+	// --- Session change handle (to notify the material editor) ---
+	FDelegateHandle MaterialChangedHandle;
 
 	// --- Polling (standalone mode) ---
 	TOptional<double> LastPollTime;

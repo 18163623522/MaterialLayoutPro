@@ -5,6 +5,8 @@
 #include "Model/MaterialParameterInfo.h"
 #include "Materials/MaterialExpression.h"
 
+DECLARE_MULTICAST_DELEGATE(FOnMaterialChangedBySession);
+
 class UMaterial;
 class UMaterialExpressionParameter;
 class UMaterialExpressionScalarParameter;
@@ -129,4 +131,11 @@ public:
 
     void BeginInteract();
     void EndInteract();
+
+    /** Broadcast after any write-back (PushParamNow/PushDirty) so bound editors can
+     *  refresh their node UI / details panel (NotifyExternalMaterialChange). */
+    FOnMaterialChangedBySession& OnMaterialChanged() { return MaterialChangedDelegate; }
+
+private:
+    FOnMaterialChangedBySession MaterialChangedDelegate;
 };

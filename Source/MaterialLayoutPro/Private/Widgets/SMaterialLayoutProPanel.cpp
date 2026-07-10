@@ -57,6 +57,10 @@
 SMaterialLayoutProPanel::~SMaterialLayoutProPanel()
 {
 	USelection::SelectionChangedEvent.RemoveAll(this);
+	if (Session.IsValid() && MaterialChangedHandle.IsValid())
+	{
+		Session->OnMaterialChanged().Remove(MaterialChangedHandle);
+	}
 }
 
 void SMaterialLayoutProPanel::Construct(const FArguments& InArgs)
@@ -88,6 +92,13 @@ void SMaterialLayoutProPanel::Construct(const FArguments& InArgs)
 		]
 	];
 
+	// Subscribe to session writes — when a value is pushed back to the material,
+	// notify the bound material editor so its node UI / details panel refreshes too.
+	if (Session.IsValid())
+	{
+		MaterialChangedHandle = Session->OnMaterialChanged().AddSP(SharedThis(this), &SMaterialLayoutProPanel::OnMaterialChangedBySession);
+	}
+
 	// Bind to a material editor (embedded mode) or GEditor selection (standalone mode).
 	if (InArgs._OwningMaterialEditor.IsValid())
 	{
@@ -113,6 +124,20 @@ void SMaterialLayoutProPanel::BindToMaterialEditor(TWeakPtr<IMaterialEditor> InE
 	// in 4.26 without hooking private delegates). For now we resolve on construct + refresh.
 	ResolveTargetMaterial();
 	RefreshParameters();
+}
+
+void SMaterialLayoutProPanel::OnMaterialChangedBySession()
+{
+	// The session wrote a new value/group/name back to the material. Tell the bound material
+	// editor to refresh its graph nodes + details panel so the change is visible there too.
+	if (OwningMaterialEditor.IsValid())
+	{
+		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
+		if (Editor.IsValid())
+		{
+			Editor->NotifyExternalMaterialChange();
+		}
+	}
 }
 
 void SMaterialLayoutProPanel::ResolveTargetMaterial()
