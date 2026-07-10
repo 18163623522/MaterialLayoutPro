@@ -208,65 +208,60 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 				FUIAction(
 					FExecuteAction::CreateLambda([]()
 					{
-						// Find the currently focused material editor and toggle its sidebar tab.
-						if (UAssetEditorSubsystem* AssetEditorSS = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr)
+						// Find the currently active material editor.
+						UAssetEditorSubsystem* AssetEditorSS = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
+						if (!AssetEditorSS) return;
+
+						for (UObject* Asset : AssetEditorSS->GetAllEditedAssets())
 						{
-							for (UObject* Asset : AssetEditorSS->GetAllEditedAssets())
+							if (!Asset || !Asset->IsA<UMaterialInterface>()) continue;
+							IAssetEditorInstance* Instance = AssetEditorSS->FindEditorForAsset(Asset, false);
+							if (!Instance) continue;
+							IMaterialEditor* MatEditor = static_cast<IMaterialEditor*>(Instance);
+
+							// Ensure the sidebar tab spawner is registered on this editor (idempotent).
+							FMaterialLayoutProModule& Module = FModuleManager::GetModuleChecked<FMaterialLayoutProModule>("MaterialLayoutPro");
+							Module.RegisterEmbeddedSidebar(MatEditor);
+
+							FAssetEditorToolkit* Toolkit = static_cast<FAssetEditorToolkit*>(Instance);
+							if (TSharedPtr<FTabManager> TM = Toolkit->GetTabManager())
 							{
-								if (Asset && Asset->IsA<UMaterialInterface>())
+								TSharedPtr<SDockTab> Tab = TM->FindExistingLiveTab(FMaterialLayoutProModule::EmbeddedTabId);
+								if (Tab.IsValid() && Tab->IsForeground())
 								{
-									if (IAssetEditorInstance* Instance = AssetEditorSS->FindEditorForAsset(Asset, false))
-									{
-										if (FAssetEditorToolkit* Toolkit = static_cast<FAssetEditorToolkit*>(Instance))
-										{
-											if (TSharedPtr<FTabManager> TM = Toolkit->GetTabManager())
-											{
-												TSharedPtr<SDockTab> Tab = TM->FindExistingLiveTab(FMaterialLayoutProModule::EmbeddedTabId);
-												if (Tab.IsValid() && Tab->IsForeground())
-												{
-													Tab->RequestCloseTab();
-												}
-												else
-												{
-													TM->TryInvokeTab(FMaterialLayoutProModule::EmbeddedTabId);
-												}
-												return;
-											}
-										}
-									}
+									Tab->RequestCloseTab();
+								}
+								else
+								{
+									TM->TryInvokeTab(FMaterialLayoutProModule::EmbeddedTabId);
 								}
 							}
+							return;
 						}
 					}),
 					FCanExecuteAction(),
 					FIsActionChecked::CreateLambda([]() -> bool
 					{
-						if (UAssetEditorSubsystem* AssetEditorSS = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr)
+						UAssetEditorSubsystem* AssetEditorSS = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
+						if (!AssetEditorSS) return false;
+						for (UObject* Asset : AssetEditorSS->GetAllEditedAssets())
 						{
-							for (UObject* Asset : AssetEditorSS->GetAllEditedAssets())
+							if (!Asset || !Asset->IsA<UMaterialInterface>()) continue;
+							IAssetEditorInstance* Instance = AssetEditorSS->FindEditorForAsset(Asset, false);
+							if (!Instance) continue;
+							FAssetEditorToolkit* Toolkit = static_cast<FAssetEditorToolkit*>(Instance);
+							if (TSharedPtr<FTabManager> TM = Toolkit->GetTabManager())
 							{
-								if (Asset && Asset->IsA<UMaterialInterface>())
-								{
-									if (IAssetEditorInstance* Instance = AssetEditorSS->FindEditorForAsset(Asset, false))
-									{
-										if (FAssetEditorToolkit* Toolkit = static_cast<FAssetEditorToolkit*>(Instance))
-										{
-											if (TSharedPtr<FTabManager> TM = Toolkit->GetTabManager())
-											{
-												TSharedPtr<SDockTab> Tab = TM->FindExistingLiveTab(FMaterialLayoutProModule::EmbeddedTabId);
-												return Tab.IsValid() && Tab->IsForeground();
-											}
-										}
-									}
-								}
+								TSharedPtr<SDockTab> Tab = TM->FindExistingLiveTab(FMaterialLayoutProModule::EmbeddedTabId);
+								return Tab.IsValid() && Tab->IsForeground();
 							}
 						}
 						return false;
 					})
 				),
 				NAME_None,
+				FText::GetEmpty(), // icon-only, no visible label
 				FText::FromString(TEXT("参数布局")),
-				FText::FromString(TEXT("打开/关闭参数布局侧边栏")),
 #if ENGINE_MAJOR_VERSION >= 5
 				FSlateIcon(FAppStyle::GetAppStyleSetName(), "DetailsPanel")
 #else
