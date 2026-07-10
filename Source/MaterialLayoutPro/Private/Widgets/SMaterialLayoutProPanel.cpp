@@ -360,10 +360,18 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bC
 {
 	if (!Param.IsValid())
 	{
-		ClearSelection();
-		RebuildTree();
+		if (SelectedParams.Num() > 0)
+		{
+			ClearSelection();
+			RebuildTree();
+		}
 		return;
 	}
+
+	// Snapshot selection state before change - only RebuildTree if something actually changed.
+	// This is critical: rebuilding the tree destroys all child widgets (text boxes, etc.),
+	// which kills focus and makes typing impossible when clicking on an already-selected row.
+	TArray<TSharedPtr<FMLPParamVM>> OldSelection = SelectedParams;
 
 	if (bCtrl)
 	{
@@ -397,12 +405,27 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bC
 	}
 	else
 	{
-		// Single select - replace.
+		// Single select - replace. If already the only selected one, do nothing (preserve focus).
+		if (SelectedParams.Num() == 1 && IsSelected(Param))
+		{
+			// Already selected, no change needed - skip RebuildTree to keep widget focus.
+			return;
+		}
 		SelectedParams.Reset();
 		SelectedParams.Add(Param);
 	}
 	LastSelectedParam = Param;
-	RebuildTree();
+
+	// Only rebuild if the selection actually changed.
+	bool bChanged = (OldSelection.Num() != SelectedParams.Num());
+	if (!bChanged)
+	{
+		for (int32 i = 0; i < OldSelection.Num(); ++i)
+		{
+			if (OldSelection[i] != SelectedParams[i]) { bChanged = true; break; }
+		}
+	}
+	if (bChanged) RebuildTree();
 
 	// Sync selection to material graph (without jumping/panning the viewport).
 	// JumpToExpression is only triggered on double-click (OnMouseButtonDoubleClick in the row).
