@@ -46,10 +46,26 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 	// Type color — shown as a small dot to the left of the name.
 	const FLinearColor& TypeColor = FMLPTheme::GetTypeColorForType(VM->Type);
 
+	// Usage status color — small dot after priority (green=used, red=unused, amber=half).
+	const FLinearColor UsageColor = VM->GetUsageColor();
+
 	// Name color — unused params shown in red (original-style diagnostic).
 	const FLinearColor NameColor = (VM->Usage == EMLPParameterUsage::Unused)
 		? FMLPTheme::Destructive()
 		: (VM->bHasDuplicateName ? FMLPTheme::Warning() : FMLPTheme::Foreground());
+
+	// Transparent editable-text-box style (default has a white background).
+	static FEditableTextBoxStyle TransparentStyle;
+	static bool bStyleInit = false;
+	if (!bStyleInit)
+	{
+		TransparentStyle = FCoreStyle::Get().GetWidgetStyle<FEditableTextBoxStyle>("NormalEditableTextBox");
+		TransparentStyle.BackgroundImageNormal.TintColor = FSlateColor(FLinearColor::Transparent);
+		TransparentStyle.BackgroundImageHovered.TintColor = FSlateColor(FLinearColor::Transparent);
+		TransparentStyle.BackgroundImageFocused.TintColor = FSlateColor(FLinearColor::Transparent);
+		TransparentStyle.Padding = FMargin(0.f);
+		bStyleInit = true;
+	}
 
 	auto GetBgColor = [this]() -> FLinearColor
 	{
@@ -79,10 +95,11 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 				]
 			]
 
-			// Name (editable)
+			// Name (editable) — transparent background so it blends with the row.
 			+ SHorizontalBox::Slot().FillWidth(0.30f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
 			[
 				SNew(SEditableTextBox)
+				.Style(&TransparentStyle)
 				.Text(FText::FromName(VM->Name))
 				.Font(FMLPTheme::FontBody())
 				.ForegroundColor(NameColor)
@@ -97,14 +114,16 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 				BuildValueEditor()
 			]
 
-			// Group (editable, detail mode)
+			// Group (editable, detail mode) — transparent background.
 			+ SHorizontalBox::Slot().FillWidth(0.20f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
 			[
 				bDetailMode
 					? StaticCastSharedRef<SWidget>(
 						SNew(SEditableTextBox)
+						.Style(&TransparentStyle)
 						.Text(FText::FromName(VM->Group))
 						.Font(FMLPTheme::FontSmall())
+						.ForegroundColor(FMLPTheme::Muted())
 						.OnTextCommitted(this, &SMaterialParameterRow::OnGroupCommitted))
 					: StaticCastSharedRef<SWidget>(SNew(SBox))
 			]
@@ -122,6 +141,19 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 							.OnValueCommitted(this, &SMaterialParameterRow::OnPriorityCommitted)
 						])
 					: StaticCastSharedRef<SWidget>(SNew(SBox))
+			]
+
+			// Usage status dot — green=used, red=unused, amber=half-used.
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			.Padding(FMargin(4.f, 0.f, 0.f, 0.f))
+			[
+				SNew(SBox).WidthOverride(7.f).HeightOverride(7.f)
+				[
+					SNew(SBorder)
+					.BorderBackgroundColor(UsageColor)
+					.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+					.Padding(0.f)
+				]
 			]
 		]
 	];
