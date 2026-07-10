@@ -216,22 +216,21 @@ void SMaterialLayoutProPanel::Tick(const FGeometry& AllottedGeometry, double InC
 
 	// --- Graph→Panel selection sync (every frame, cheap) ---
 	// When the user selects nodes in the material graph, highlight the matching row.
-	if (OwningMaterialEditor.IsValid() && !bSyncingSelection)
+	// Skip for a short cooldown after a panel→graph sync to avoid feedback loops.
+	if (OwningMaterialEditor.IsValid() && InCurrentTime > SyncCooldownUntil)
 	{
 		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
 		if (Editor.IsValid() && Session.IsValid())
 		{
 			TSet<UObject*> GraphSelection = Editor->GetSelectedNodes();
 			TSharedPtr<FMLPParamVM> NewSel;
-			// Find the first VM whose source expression is in the graph selection.
 			for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
 			{
 				for (const TSharedPtr<FMLPParamVM>& Param : Group->Parameters)
 				{
 					if (Param.IsValid() && Param->SourceExpression.IsValid())
 					{
-						UObject* Expr = Param->SourceExpression.Get();
-						if (GraphSelection.Contains(Expr))
+						if (GraphSelection.Contains(Param->SourceExpression.Get()))
 						{
 							NewSel = Param;
 							break;
@@ -240,8 +239,7 @@ void SMaterialLayoutProPanel::Tick(const FGeometry& AllottedGeometry, double InC
 				}
 				if (NewSel.IsValid()) break;
 			}
-			// Only update if the selection actually changed (avoids rebuilding every frame).
-			if (NewSel != SelectedParam && !(NewSel.IsValid() && NewSel == SelectedParam))
+			if (NewSel != SelectedParam)
 			{
 				SelectedParam = NewSel;
 				RebuildTree();
@@ -359,17 +357,16 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param)
 	RebuildTree();
 
 	// Sync selection to the material graph: highlight + jump to the node.
-	// Guard against feedback loops: Tick (graph→panel) also sets selection.
-	if (Param.IsValid() && Param->SourceExpression.IsValid() && OwningMaterialEditor.IsValid() && !bSyncingSelection)
+	if (Param.IsValid() && Param->SourceExpression.IsValid() && OwningMaterialEditor.IsValid())
 	{
 		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
 		if (Editor.IsValid())
 		{
 			UMaterialExpression* Expr = Param->SourceExpression.Get();
-			bSyncingSelection = true;
+			// Set a cooldown so Tick's graph→panel sync ignores the change we just caused.
+			SyncCooldownUntil = FSlateApplication::Get().GetCurrentTime() + 0.5;
 			Editor->AddToSelection(Expr);
 			Editor->JumpToExpression(Expr);
-			bSyncingSelection = false;
 		}
 	}
 }
