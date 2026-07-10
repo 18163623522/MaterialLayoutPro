@@ -217,7 +217,7 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 			auto V = WeakVM.Pin();
 			if (!V.IsValid()) return FText::GetEmpty();
 			const FLinearColor& C = V->VectorValue;
-			return FText::FromString(FString::Printf(TEXT("%.2f,%.2f,%.2f,%.2f"), C.R, C.G, C.B, C.A));
+			return FText::FromString(FString::Printf(TEXT("R:%.2f G:%.2f B:%.2f A:%.2f"), C.R, C.G, C.B, C.A));
 		};
 		return SNew(SHorizontalBox)
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
