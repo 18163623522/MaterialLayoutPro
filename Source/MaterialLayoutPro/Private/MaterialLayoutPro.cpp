@@ -26,6 +26,11 @@
 #include "MaterialEditorModule.h"
 #include "Toolkits/AssetEditorManager.h"
 #include "Toolkits/AssetEditorToolkit.h"
+#if ENGINE_MAJOR_VERSION >= 5
+#include "Styling/AppStyle.h"
+#else
+#include "EditorStyleSet.h"
+#endif
 
 #define LOCTEXT_NAMESPACE "FMaterialLayoutProModule"
 
@@ -229,25 +234,50 @@ void FMaterialLayoutProModule::RegisterEmbeddedSidebar(IMaterialEditor* InMateri
 	ToolbarExtender->AddToolBarExtension(
 		"Asset",
 		EExtensionHook::After,
-		nullptr, // no command list — the button uses a direct lambda
+		nullptr,
 		FToolBarExtensionDelegate::CreateLambda([WeakEditor](FToolBarBuilder& Builder)
 		{
+			// Toggle button: opens/closes the sidebar. Check state reflects whether
+			// the tab is currently open (so the icon shows pressed when sidebar is visible).
 			Builder.AddToolBarButton(
-				FUIAction(FExecuteAction::CreateLambda([WeakEditor]()
-				{
-					auto Editor = WeakEditor.Pin();
-					if (Editor.IsValid())
+				FUIAction(
+					FExecuteAction::CreateLambda([WeakEditor]()
 					{
+						auto Editor = WeakEditor.Pin();
+						if (Editor.IsValid())
+						{
+							if (TSharedPtr<FTabManager> TM = StaticCastSharedPtr<IMaterialEditor>(Editor)->GetTabManager())
+							{
+								TSharedPtr<SDockTab> ExistingTab = TM->FindExistingLiveTab(FMaterialLayoutProModule::EmbeddedTabId);
+								if (ExistingTab.IsValid() && ExistingTab->IsForeground())
+								{
+									ExistingTab->RequestCloseTab();
+								}
+								else
+								{
+									TM->TryInvokeTab(FMaterialLayoutProModule::EmbeddedTabId);
+								}
+							}
+						}
+					}),
+					FCanExecuteAction(),
+					FIsActionChecked::CreateLambda([WeakEditor]() -> bool
+					{
+						auto Editor = WeakEditor.Pin();
+						if (!Editor.IsValid()) return false;
 						if (TSharedPtr<FTabManager> TM = StaticCastSharedPtr<IMaterialEditor>(Editor)->GetTabManager())
 						{
-							TM->TryInvokeTab(FMaterialLayoutProModule::EmbeddedTabId);
+							TSharedPtr<SDockTab> Tab = TM->FindExistingLiveTab(FMaterialLayoutProModule::EmbeddedTabId);
+							return Tab.IsValid() && Tab->IsForeground();
 						}
-					}
-				})),
+						return false;
+					})
+				),
 				NAME_None,
 				LOCTEXT("ToolbarSidebarButton", "参数布局"),
-				LOCTEXT("ToolbarSidebarButtonTip", "打开/聚焦参数布局侧边栏"),
-				FSlateIcon(FMaterialLayoutProStyle::GetStyleSetName(), "MaterialLayoutPro.OpenPanel"));
+				LOCTEXT("ToolbarSidebarButtonTip", "打开/关闭参数布局侧边栏"),
+				FSlateIcon(FEditorStyle::Get().GetStyleSetName(), "LevelEditor.ToggleDetails")
+			);
 		}));
 	InMaterialEditor->GetToolBarExtensibilityManager()->AddExtender(ToolbarExtender);
 	UE_LOG(LogTemp, Warning, TEXT("[MLP] RegisterEmbeddedSidebar: toolbar extender added"));
