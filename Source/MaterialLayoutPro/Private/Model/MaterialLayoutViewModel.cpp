@@ -198,93 +198,17 @@ void FMLPSession::PullAll()
         Groups[*FoundIndex]->Parameters.Add(ParamVM);
     }
 
-    // Sort groups: by user-defined GroupOrder, or by numeric prefix in the group name,
-    // then alphabetically. Also strip numeric prefix for display.
+    // Sort groups: by SortPriority (editable in the panel), then alphabetically.
+    // DisplayName = the group name as-is (no prefix stripping).
+    Groups.Sort([](const TSharedPtr<FMLPGroupVM>& A, const TSharedPtr<FMLPGroupVM>& B)
     {
-        const auto* Settings = GetDefault<UMaterialLayoutProSettings>();
-        TMap<FName, int32> OrderMap;
-        TMap<FName, FString> DisplayNameMap;
-        if (Settings)
-        {
-            for (const auto& Rule : Settings->GroupOrder)
-            {
-                OrderMap.Add(FName(*Rule.GroupName), Rule.Order);
-                if (!Rule.DisplayName.IsEmpty())
-                    DisplayNameMap.Add(FName(*Rule.GroupName), Rule.DisplayName);
-            }
-        }
+        if (A->SortPriority != B->SortPriority) return A->SortPriority < B->SortPriority;
+        return A->Name.ToString() < B->Name.ToString();
+    });
 
-        // Helper: extract numeric prefix from group name (e.g. "000_BaseColor" -> 0).
-        auto ExtractNumericPrefix = [](const FString& Name) -> int32
-        {
-            int32 Idx;
-            if (Name.FindChar('_', Idx) && Idx > 0)
-            {
-                FString Prefix = Name.Left(Idx);
-                if (!Prefix.IsEmpty() && Prefix[0] >= '0' && Prefix[0] <= '9')
-                {
-                    int32 Val = 0;
-                    for (TCHAR C : Prefix)
-                    {
-                        if (C >= '0' && C <= '9') Val = Val * 10 + (C - '0');
-                        else { Val = -1; break; }
-                    }
-                    if (Val >= 0) return Val;
-                }
-            }
-            return -1;
-        };
-
-        Groups.Sort([&](const TSharedPtr<FMLPGroupVM>& A, const TSharedPtr<FMLPGroupVM>& B)
-        {
-            const FString& NameA = A->Name.ToString();
-            const FString& NameB = B->Name.ToString();
-
-            // 1. User-defined GroupOrder takes highest priority.
-            int32 OrderA = OrderMap.Contains(A->Name) ? OrderMap[A->Name] : -1;
-            int32 OrderB = OrderMap.Contains(B->Name) ? OrderMap[B->Name] : -1;
-            if (OrderA >= 0 && OrderB >= 0 && OrderA != OrderB) return OrderA < OrderB;
-            if (OrderA >= 0 && OrderB < 0) return true;
-            if (OrderA < 0 && OrderB >= 0) return false;
-
-            // 2. Fallback: numeric prefix in group name (e.g. "000_X" < "010_Y").
-            int32 NumA = ExtractNumericPrefix(NameA);
-            int32 NumB = ExtractNumericPrefix(NameB);
-            if (NumA >= 0 && NumB >= 0 && NumA != NumB) return NumA < NumB;
-            if (NumA >= 0 && NumB < 0) return true;
-            if (NumA < 0 && NumB >= 0) return false;
-
-            // 3. Final fallback: alphabetical.
-            return NameA < NameB;
-        });
-
-        // Apply display names: strip "NNN_" prefix or use user-defined DisplayName.
-        for (const TSharedPtr<FMLPGroupVM>& Group : Groups)
-        {
-            FString* CustomName = DisplayNameMap.Find(Group->Name);
-            if (CustomName && !CustomName->IsEmpty())
-            {
-                Group->DisplayName = *CustomName;
-            }
-            else
-            {
-                // Auto-strip numeric prefix: "000_Basecolor" -> "Basecolor"
-                FString NameStr = Group->Name.ToString();
-                int32 Idx;
-                if (NameStr.FindChar('_', Idx) && Idx > 0)
-                {
-                    FString Prefix = NameStr.Left(Idx);
-                    bool bAllDigits = !Prefix.IsEmpty();
-                    for (TCHAR C : Prefix) { if (C < '0' || C > '9') { bAllDigits = false; break; } }
-                    if (bAllDigits) Group->DisplayName = NameStr.RightChop(Idx + 1);
-                    else Group->DisplayName = NameStr;
-                }
-                else
-                {
-                    Group->DisplayName = NameStr;
-                }
-            }
-        }
+    for (const TSharedPtr<FMLPGroupVM>& Group : Groups)
+    {
+        Group->DisplayName = Group->Name.ToString();
     }
 
     // Sort parameters within each group by SortPriority (then Name as tiebreaker).

@@ -30,6 +30,7 @@
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
+#include "Widgets/Input/SNumericEntryBox.h"
 #include "Styling/CoreStyle.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "IMaterialEditor.h"
@@ -275,12 +276,42 @@ void SMaterialLayoutProPanel::RebuildTree()
 		if (VisibleCount == 0) continue;
 
 		// Group header — compact, muted (original-style: small gray text, no colored bar).
+		// Group header: [sort number] [name (count)]
 		TreeContainer->AddSlot().AutoHeight().Padding(FMargin(2.f, 6.f, 0.f, 2.f))
 		[
-			SNew(STextBlock)
-			.Text(FText::FromString(FString::Printf(TEXT("%s  (%d)"), *Group->DisplayName, VisibleCount)))
-			.Font(FMLPTheme::FontSmall())
-			.ColorAndOpacity(FMLPTheme::Muted())
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			[
+				SNew(SBox).WidthOverride(36.f)
+				[
+					SNew(SNumericEntryBox<int32>)
+					.Value(TOptional<int32>(Group->SortPriority))
+					.Font(FMLPTheme::FontSmall())
+					.MinDesiredValueWidth(24.f)
+					.AllowSpin(false)
+					.ToolTipText(LOCTEXT("GroupSortTT", "排序号 (小的在前)"))
+					.OnValueCommitted_Lambda([this, Group](int32 NewValue, ETextCommit::Type)
+					{
+						if (Group.IsValid() && NewValue != Group->SortPriority)
+						{
+							Group->SortPriority = NewValue;
+							Session->Groups.Sort([](const TSharedPtr<FMLPGroupVM>& A, const TSharedPtr<FMLPGroupVM>& B)
+							{
+								if (A->SortPriority != B->SortPriority) return A->SortPriority < B->SortPriority;
+								return A->Name.ToString() < B->Name.ToString();
+							});
+							RebuildTree();
+						}
+					})
+				]
+			]
+			+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center).Padding(FMargin(4.f, 0.f, 0.f, 0.f))
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(FString::Printf(TEXT("%s  (%d)"), *Group->DisplayName, VisibleCount)))
+				.Font(FMLPTheme::FontSmall())
+				.ColorAndOpacity(FMLPTheme::Muted())
+			]
 		];
 
 		// Inline parameter rows — clickable background (not a button) so internal
