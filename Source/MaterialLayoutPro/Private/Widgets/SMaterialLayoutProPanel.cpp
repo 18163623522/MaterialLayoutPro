@@ -347,6 +347,7 @@ void SMaterialLayoutProPanel::RebuildTree()
 				.OnClicked(FOnRowClicked::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::SelectParam))
 				.OnDoubleClicked(FOnRowDoubleClicked::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::JumpToParam))
 				.OnParamDropped(FOnParamDropped::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::OnParamDropped))
+				.IsSelectedQuery(FIsParamSelected::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::IsSelected))
 			];
 		}
 	}
@@ -363,25 +364,23 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bC
 		if (SelectedParams.Num() > 0)
 		{
 			ClearSelection();
-			RebuildTree();
 		}
 		return;
 	}
 
-	// Snapshot selection state before change - only RebuildTree if something actually changed.
-	// This is critical: rebuilding the tree destroys all child widgets (text boxes, etc.),
-	// which kills focus and makes typing impossible when clicking on an already-selected row.
-	TArray<TSharedPtr<FMLPParamVM>> OldSelection = SelectedParams;
+	// Update selection state. We do NOT call RebuildTree() here - the row background
+	// color is driven by a dynamic IsSelected query (lambda), so the highlight updates
+	// automatically on the next paint pass without destroying/recreating any widgets.
+	// This is critical: RebuildTree destroys all child widgets (text boxes, value editors),
+	// which kills focus and makes typing impossible.
 
 	if (bCtrl)
 	{
-		// Toggle this param in the selection.
 		if (IsSelected(Param)) SelectedParams.Remove(Param);
 		else SelectedParams.Add(Param);
 	}
 	else if (bShift && LastSelectedParam.IsValid())
 	{
-		// Range select from LastSelectedParam to Param.
 		bool bFoundStart = false;
 		for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
 		{
@@ -396,7 +395,6 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bC
 				if (bFoundStart)
 				{
 					if (!IsSelected(P)) SelectedParams.Add(P);
-					// Stop if we reached the target.
 					if (P == Param) break;
 				}
 			}
@@ -405,30 +403,13 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bC
 	}
 	else
 	{
-		// Single select - replace. If already the only selected one, do nothing (preserve focus).
-		if (SelectedParams.Num() == 1 && IsSelected(Param))
-		{
-			// Already selected, no change needed - skip RebuildTree to keep widget focus.
-			return;
-		}
+		// Single select - replace.
 		SelectedParams.Reset();
 		SelectedParams.Add(Param);
 	}
 	LastSelectedParam = Param;
 
-	// Only rebuild if the selection actually changed.
-	bool bChanged = (OldSelection.Num() != SelectedParams.Num());
-	if (!bChanged)
-	{
-		for (int32 i = 0; i < OldSelection.Num(); ++i)
-		{
-			if (OldSelection[i] != SelectedParams[i]) { bChanged = true; break; }
-		}
-	}
-	if (bChanged) RebuildTree();
-
 	// Sync selection to material graph (without jumping/panning the viewport).
-	// JumpToExpression is only triggered on double-click (OnMouseButtonDoubleClick in the row).
 	if (Param->SourceExpression.IsValid() && OwningMaterialEditor.IsValid())
 	{
 		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();

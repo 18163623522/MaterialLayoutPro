@@ -40,6 +40,7 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 	OnClickedDelegate = InArgs._OnClicked;
 	OnDoubleClickedDelegate = InArgs._OnDoubleClicked;
 	OnParamDroppedDelegate = InArgs._OnParamDropped;
+	IsSelectedQueryDelegate = InArgs._IsSelectedQuery;
 
 	if (!VM.IsValid())
 	{
@@ -78,7 +79,13 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 	auto GetBgColor = [this]() -> FLinearColor
 	{
 		if (bIsDropTarget) return FMLPTheme::AccentBg();     // drop highlight
-		if (bSelected) return FMLPTheme::SelectionBg();
+		// Dynamic selection check - query the panel each paint instead of using a fixed flag.
+		bool bCurrentlySelected = bSelected;
+		if (IsSelectedQueryDelegate.IsBound() && VM.IsValid())
+		{
+			bCurrentlySelected = IsSelectedQueryDelegate.Execute(VM);
+		}
+		if (bCurrentlySelected) return FMLPTheme::SelectionBg();
 		return FLinearColor::Transparent;
 	};
 
@@ -222,30 +229,23 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 
 FReply SMaterialParameterRow::OnPreviewMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
+	// Preview fires BEFORE child widgets.
+	// For Ctrl/Shift: intercept and consume (multi-select only).
+	// For plain clicks: fire selection then fall through to children.
+	// This is safe because SelectParam no longer calls RebuildTree() - it just updates
+	// the selection array, and the row background is driven by a dynamic IsSelected query.
 	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
 		const bool bCtrl = MouseEvent.IsControlDown();
 		const bool bShift = MouseEvent.IsShiftDown();
 
-		// Check if click is in the drag handle area (first ~24px of the row).
-		const FVector2D LocalPos = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
-		const bool bOnDragHandle = (LocalPos.X < 24.f);
-
 		if (bCtrl || bShift)
 		{
-			// Multi-select: intercept and consume so children don't react.
 			OnClickedDelegate.ExecuteIfBound(VM, bCtrl, bShift);
 			return FReply::Handled();
 		}
 
-		// Plain click on drag handle: don't select or jump - let the handle start the drag.
-		if (bOnDragHandle)
-		{
-			return SCompoundWidget::OnPreviewMouseButtonDown(MyGeometry, MouseEvent);
-		}
-
-		// Plain click elsewhere: fire selection (for grouping, etc.) but don't consume -
-		// let children (text boxes, value editors) also receive the click for editing.
+		// Plain click: fire selection, then fall through (don't consume).
 		OnClickedDelegate.ExecuteIfBound(VM, false, false);
 	}
 	return SCompoundWidget::OnPreviewMouseButtonDown(MyGeometry, MouseEvent);

@@ -12,6 +12,9 @@ DECLARE_DELEGATE_ThreeParams(FOnRowClicked, TSharedPtr<FMLPParamVM>, bool /*bCtr
 /** Broadcast when the row is double-clicked (jump to node in graph). */
 DECLARE_DELEGATE_OneParam(FOnRowDoubleClicked, TSharedPtr<FMLPParamVM>);
 
+/** Query whether a param is currently selected (for dynamic highlight). */
+DECLARE_DELEGATE_RetVal_OneParam(bool, FIsParamSelected, TSharedPtr<FMLPParamVM>);
+
 /** Broadcast when a param is dropped onto this row. bInsertBefore=insert above, false=insert below. */
 DECLARE_DELEGATE_ThreeParams(FOnParamDropped, TSharedPtr<FMLPParamVM> /*Dragged*/, TSharedPtr<FMLPParamVM> /*Target*/, bool /*bInsertBefore*/);
 
@@ -29,6 +32,7 @@ public:
 		SLATE_EVENT(FOnRowClicked, OnClicked)
 		SLATE_EVENT(FOnRowDoubleClicked, OnDoubleClicked)
 		SLATE_EVENT(FOnParamDropped, OnParamDropped)
+		SLATE_EVENT(FIsParamSelected, IsSelectedQuery)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
@@ -52,6 +56,7 @@ private:
 	FOnRowClicked OnClickedDelegate;
 	FOnRowDoubleClicked OnDoubleClickedDelegate;
 	FOnParamDropped OnParamDroppedDelegate;
+	FIsParamSelected IsSelectedQueryDelegate;
 
 	// Drop target visual state
 	bool bIsDropTarget = false;
