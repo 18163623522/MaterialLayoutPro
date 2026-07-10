@@ -175,16 +175,28 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 	];
 }
 
+FReply SMaterialParameterRow::OnPreviewMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+{
+	// Preview fires BEFORE child widgets get the click. This is the ONLY reliable
+	// place to intercept Ctrl/Shift+click for multi-select - otherwise editable text
+	// boxes, numeric spinners, etc. swallow the event and OnMouseButtonDown never fires.
+	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton &&
+		(MouseEvent.IsControlDown() || MouseEvent.IsShiftDown()))
+	{
+		OnClickedDelegate.ExecuteIfBound(VM, MouseEvent.IsControlDown(), MouseEvent.IsShiftDown());
+		return FReply::Handled(); // consume - prevent child widgets from also reacting
+	}
+	// No modifier: fall through so children handle their own clicks normally,
+	// and OnMouseButtonDown handles plain row-click selection.
+	return SCompoundWidget::OnPreviewMouseButtonDown(MyGeometry, MouseEvent);
+}
+
 FReply SMaterialParameterRow::OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
-	// Left-click anywhere on the row selects this parameter.
-	// Child widgets (editable text, value editors) capture their own clicks first,
-	// so this only fires for clicks on empty row areas — no conflict.
+	// Plain left-click on empty row area (child widgets already consumed clicks on themselves).
 	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
-		const bool bCtrl = MouseEvent.IsControlDown();
-		const bool bShift = MouseEvent.IsShiftDown();
-		OnClickedDelegate.ExecuteIfBound(VM, bCtrl, bShift);
+		OnClickedDelegate.ExecuteIfBound(VM, false, false);
 	}
 	return FReply::Unhandled();
 }

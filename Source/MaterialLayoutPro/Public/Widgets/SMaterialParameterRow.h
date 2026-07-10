@@ -25,6 +25,8 @@ public:
 
 	void Construct(const FArguments& InArgs);
 
+	/** Preview - fires BEFORE child widgets. Intercept Ctrl/Shift+click for multi-select. */
+	virtual FReply OnPreviewMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
 	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
 
 private:
