@@ -149,17 +149,27 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 					: StaticCastSharedRef<SWidget>(SNew(SBox))
 			]
 
-			// Usage status dot — green=used, red=unused, amber=half-used.
+			// Usage status label — text tag with color, more intuitive than a dot.
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-			.Padding(FMargin(4.f, 0.f, 0.f, 0.f))
+			.Padding(FMargin(6.f, 0.f, 0.f, 0.f))
 			[
-				SNew(SBox).WidthOverride(7.f).HeightOverride(7.f)
-				[
-					SNew(SBorder)
-					.BorderBackgroundColor(UsageColor)
-					.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-					.Padding(0.f)
-				]
+				SNew(STextBlock)
+				.Text_Lambda([this]() -> FText {
+					if (!VM.IsValid()) return FText::GetEmpty();
+					switch (VM->Usage)
+					{
+					case EMLPParameterUsage::Used:     return FText::FromString(TEXT("已用"));
+					case EMLPParameterUsage::Unused:   return FText::FromString(TEXT("未用"));
+					case EMLPParameterUsage::HalfUsed: return FText::FromString(TEXT("部分"));
+					case EMLPParameterUsage::Indirect: return FText::FromString(TEXT("间接"));
+					default:                           return FText::FromString(TEXT("?"));
+					}
+				})
+				.Font(FMLPTheme::FontSmall())
+				.ColorAndOpacity_Lambda([this]() -> FSlateColor {
+					if (!VM.IsValid()) return FMLPTheme::Muted();
+					return VM->GetUsageColor();
+				})
 			]
 		]
 	];
@@ -202,29 +212,46 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 	}
 	case EMLPParameterType::Vector:
 	{
-		// Wrap the color block in a fixed-size box so it's easy to click.
-		return SNew(SBox).WidthOverride(40.f).HeightOverride(18.f).VAlign(VAlign_Center)
+		// Color swatch + RGBA text so the value is visible at a glance.
+		auto GetRGBAText = [WeakVM]() -> FText {
+			auto V = WeakVM.Pin();
+			if (!V.IsValid()) return FText::GetEmpty();
+			const FLinearColor& C = V->VectorValue;
+			return FText::FromString(FString::Printf(TEXT("%.2f,%.2f,%.2f,%.2f"), C.R, C.G, C.B, C.A));
+		};
+		return SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
 			[
-				SNew(SColorBlock)
-				.Color_Lambda([WeakVM]() -> FLinearColor {
-					if (auto V = WeakVM.Pin()) return V->VectorValue;
-					return FLinearColor::White;
-				})
-				.OnMouseButtonDown_Lambda([this, WeakVM](const FGeometry&, const FPointerEvent& MouseEvent) -> FReply {
-					if (MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) return FReply::Unhandled();
-					auto V = WeakVM.Pin();
-					if (!V.IsValid()) return FReply::Unhandled();
-					FColorPickerArgs Args;
-					Args.bUseAlpha = true;
+				SNew(SBox).WidthOverride(24.f).HeightOverride(16.f)
+				[
+					SNew(SColorBlock)
+					.Color_Lambda([WeakVM]() -> FLinearColor {
+						if (auto V = WeakVM.Pin()) return V->VectorValue;
+						return FLinearColor::White;
+					})
+					.OnMouseButtonDown_Lambda([this, WeakVM](const FGeometry&, const FPointerEvent& MouseEvent) -> FReply {
+						if (MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) return FReply::Unhandled();
+						auto V = WeakVM.Pin();
+						if (!V.IsValid()) return FReply::Unhandled();
+						FColorPickerArgs Args;
+						Args.bUseAlpha = true;
 #if ENGINE_MAJOR_VERSION >= 5
-					Args.InitialColor = V->VectorValue;
+						Args.InitialColor = V->VectorValue;
 #else
-					Args.InitialColorOverride = V->VectorValue;
+						Args.InitialColorOverride = V->VectorValue;
 #endif
-					Args.OnColorCommitted = FOnLinearColorValueChanged::CreateLambda([this, V](FLinearColor NewColor) { OnVectorChanged(NewColor); });
-					OpenColorPicker(Args);
-					return FReply::Handled();
-				})
+						Args.OnColorCommitted = FOnLinearColorValueChanged::CreateLambda([this, V](FLinearColor NewColor) { OnVectorChanged(NewColor); });
+						OpenColorPicker(Args);
+						return FReply::Handled();
+					})
+				]
+			]
+			+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+			[
+				SNew(STextBlock)
+				.Text_Lambda(GetRGBAText)
+				.Font(FMLPTheme::FontSmall())
+				.ColorAndOpacity(FMLPTheme::Muted())
 			];
 	}
 	case EMLPParameterType::Texture:
@@ -266,12 +293,27 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 	case EMLPParameterType::StaticBool:
 	case EMLPParameterType::StaticSwitch:
 	{
-		return SNew(SCheckBox)
-			.IsChecked_Lambda([WeakVM]() -> ECheckBoxState {
-				if (auto V = WeakVM.Pin()) return V->BoolValue ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
-				return ECheckBoxState::Unchecked;
-			})
-			.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { OnBoolChanged(State == ECheckBoxState::Checked); });
+		// Checkbox + true/false text so the value is visible.
+		return SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			[
+				SNew(SCheckBox)
+				.IsChecked_Lambda([WeakVM]() -> ECheckBoxState {
+					if (auto V = WeakVM.Pin()) return V->BoolValue ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+					return ECheckBoxState::Unchecked;
+				})
+				.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { OnBoolChanged(State == ECheckBoxState::Checked); })
+			]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(4.f, 0.f, 0.f, 0.f))
+			[
+				SNew(STextBlock)
+				.Text_Lambda([WeakVM]() -> FText {
+					auto V = WeakVM.Pin();
+					return (V.IsValid() && V->BoolValue) ? FText::FromString(TEXT("True")) : FText::FromString(TEXT("False"));
+				})
+				.Font(FMLPTheme::FontSmall())
+				.ColorAndOpacity(FMLPTheme::Muted())
+			];
 	}
 	default:
 		return SNew(STextBlock).Text(FText::FromString(TEXT("(不支持)"))).Font(FMLPTheme::FontSmall()).ColorAndOpacity(FMLPTheme::Muted());
