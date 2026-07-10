@@ -3,6 +3,7 @@
 #include "MaterialLayoutProSettings.h"
 #include "Model/MaterialLayoutViewModel.h"
 #include "Model/MaterialParameterScanner.h"
+#include "Model/MaterialParameterInfo.h"
 #include "Widgets/SMaterialParameterRow.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -138,17 +139,19 @@ void SMaterialLayoutProPanel::ResolveTargetMaterial()
 		{
 			UMaterialInterface* MatInterface = Editor->GetMaterialInterface();
 			if (UMaterial* Mat = Cast<UMaterial>(MatInterface))
-			{
-				TargetMaterial = Mat;
-				TargetMaterialInstance = nullptr;
-				return;
-			}
-			if (UMaterialInstance* MI = Cast<UMaterialInstance>(MatInterface))
-			{
-				TargetMaterialInstance = MI;
-				TargetMaterial = MI ? MI->GetBaseMaterial() : nullptr;
-				return;
-			}
+				{
+					TargetMaterial = Mat;
+					TargetMaterialInstance = nullptr;
+					bInstanceMode = false;
+					return;
+				}
+				if (UMaterialInstance* MI = Cast<UMaterialInstance>(MatInterface))
+				{
+					TargetMaterialInstance = MI;
+					TargetMaterial = MI ? MI->GetBaseMaterial() : nullptr;
+					bInstanceMode = true;
+					return;
+				}
 		}
 		TargetMaterial.Reset();
 		TargetMaterialInstance.Reset();
@@ -251,6 +254,12 @@ void SMaterialLayoutProPanel::RebuildTree()
 {
 	if (!TreeContainer.IsValid()) return;
 	TreeContainer->ClearChildren();
+
+	if (bInstanceMode)
+	{
+		BuildInstanceContent();
+		return;
+	}
 
 	if (!Session.IsValid() || Session->Groups.Num() == 0)
 	{
@@ -537,6 +546,15 @@ bool SMaterialLayoutProPanel::PassesFilter(const TSharedPtr<FMLPParamVM>& Param)
 void SMaterialLayoutProPanel::RefreshParameters()
 {
 	if (!Session.IsValid()) return;
+
+	// Instance mode: pull from instance, not from material expressions.
+	if (bInstanceMode)
+	{
+		if (OwningMaterialEditor.IsValid()) ResolveTargetMaterial();
+		PullFromInstance();
+		RebuildTree();
+		return;
+	}
 
 	// Snapshot selected param names + group sort priorities before refresh.
 	// PullAll creates new VM objects, so we need to rebind by name match.
@@ -947,6 +965,502 @@ FText SMaterialLayoutProPanel::GetStatusText() const
 	FString Base = FString::Printf(TEXT("%d 参数 | %d 分组"), Total, Session->Groups.Num());
 	if (Session->HasDirty()) Base += TEXT("  ● 未提交");
 	return FText::FromString(Base);
+}
+
+// ============================================================================
+// Instance mode - tabbed group panel for Material Instance editors
+// ============================================================================
+
+void SMaterialLayoutProPanel::PullFromInstance()
+{
+	InstanceParams.Reset();
+	InstanceTabNames.Reset();
+
+	UMaterialInstance* MI = TargetMaterialInstance.Get();
+	UMaterial* BaseMat = TargetMaterial.Get();
+	if (!MI || !BaseMat) return;
+
+	// Scan parent material for parameter list + groups.
+	auto ScannedParams = FMaterialParameterScanner::ScanMaterial(BaseMat);
+
+	for (const auto& P : ScannedParams)
+	{
+		if (!P.IsValid() || !P->Expression.IsValid()) continue;
+
+		TSharedPtr<FMLPInstanceParamVM> VM = MakeShared<FMLPInstanceParamVM>();
+		VM->Name = P->Name;
+		VM->Group = P->Group.IsNone() ? FName(TEXT("(None)")) : P->Group;
+		VM->ExpressionGUID = P->Guid;
+		VM->Type = (int32)P->Type;
+
+		// Check if this parameter has an override on the instance.
+		FHashedMaterialParameterInfo ParamInfo(VM->Name);
+		if (P->Type == EMLPParameterType::Scalar)
+		{
+			float OutVal;
+			VM->bOverridden = MI->GetScalarParameterValue(ParamInfo, OutVal, true);
+			if (VM->bOverridden) VM->ScalarValue = OutVal;
+			else
+			{
+				if (auto* ScalarExpr = Cast<UMaterialExpressionScalarParameter>(P->Expression.Get()))
+					VM->ScalarValue = ScalarExpr->DefaultValue;
+			}
+		}
+		else if (P->Type == EMLPParameterType::Vector)
+		{
+			FLinearColor OutVal;
+			VM->bOverridden = MI->GetVectorParameterValue(ParamInfo, OutVal, true);
+			if (VM->bOverridden) VM->VectorValue = OutVal;
+			else
+			{
+				if (auto* VecExpr = Cast<UMaterialExpressionVectorParameter>(P->Expression.Get()))
+					VM->VectorValue = VecExpr->DefaultValue;
+			}
+		}
+		else if (P->Type == EMLPParameterType::Texture)
+		{
+			UTexture* OutVal;
+			VM->bOverridden = MI->GetTextureParameterValue(ParamInfo, OutVal, true);
+			if (VM->bOverridden) VM->TextureValue = OutVal;
+			else
+			{
+				if (auto* TexExpr = Cast<UMaterialExpressionTextureSampleParameter>(P->Expression.Get()))
+					VM->TextureValue = TexExpr->Texture;
+				else if (auto* TexObjExpr = Cast<UMaterialExpressionTextureObjectParameter>(P->Expression.Get()))
+					VM->TextureValue = TexObjExpr->Texture;
+			}
+		}
+		else if (P->Type == EMLPParameterType::StaticBool || P->Type == EMLPParameterType::StaticSwitch)
+		{
+			bool bOutVal;
+			FGuid OutGuid;
+			VM->bOverridden = MI->GetStaticSwitchParameterValue(ParamInfo, bOutVal, OutGuid, true);
+			if (VM->bOverridden) VM->BoolValue = bOutVal;
+			else
+			{
+				if (auto* BoolExpr = Cast<UMaterialExpressionStaticBoolParameter>(P->Expression.Get()))
+					VM->BoolValue = BoolExpr->DefaultValue;
+			}
+		}
+
+		InstanceParams.Add(VM);
+
+		// Collect unique group names.
+		if (!InstanceTabNames.Contains(VM->Group))
+			InstanceTabNames.Add(VM->Group);
+	}
+
+	// Sort tab names alphabetically (None group last).
+	InstanceTabNames.Sort([](const FName& A, const FName& B)
+	{
+		if (A == TEXT("(None)")) return false;
+		if (B == TEXT("(None)")) return true;
+		return A.ToString() < B.ToString();
+	});
+
+	// Default to first tab.
+	if (!InstanceTabNames.Contains(CurrentTab))
+	{
+		CurrentTab = InstanceTabNames.Num() > 0 ? InstanceTabNames[0] : NAME_None;
+	}
+}
+
+TSharedRef<SWidget> SMaterialLayoutProPanel::BuildInstanceContent()
+{
+	TSharedPtr<SVerticalBox> ContentBox = SNew(SVerticalBox);
+	InstanceContentContainer = ContentBox;
+
+	// --- Tab bar ---
+	TSharedPtr<SHorizontalBox> TabBar = SNew(SHorizontalBox);
+
+	for (const FName& TabName : InstanceTabNames)
+	{
+		const bool bActive = (TabName == CurrentTab);
+		TabBar->AddSlot().AutoWidth().Padding(FMargin(1, 0))
+		[
+			SNew(SButton)
+			.ButtonStyle(MLP_STYLE::Get(), "FlatButton")
+			.ButtonColorAndOpacity(bActive ? FMLPTheme::AccentBg() : FLinearColor::Transparent)
+			.ForegroundColor(bActive ? FMLPTheme::Accent() : FMLPTheme::Muted())
+			.ContentPadding(FMargin(8, 2))
+			.OnClicked(this, &SMaterialLayoutProPanel::OnTabClicked, TabName)
+			[
+				SNew(STextBlock)
+				.Text(FText::FromName(TabName))
+				.Font(FMLPTheme::FontBody())
+			]
+		];
+	}
+
+	// [+] button to add a new group.
+	TabBar->AddSlot().AutoWidth().Padding(FMargin(2, 0))
+	[
+		SNew(SButton)
+		.ButtonStyle(MLP_STYLE::Get(), "FlatButton")
+		.ContentPadding(FMargin(6, 2))
+		.ToolTipText(LOCTEXT("AddTabTT", "新建分组"))
+		.OnClicked(this, &SMaterialLayoutProPanel::OnAddTabClicked)
+		[
+			SNew(STextBlock)
+			.Text(FText::FromString(TEXT("+")))
+			.Font(FMLPTheme::FontBody())
+		]
+	];
+
+	ContentBox->AddSlot().AutoHeight().Padding(FMargin(0, 2, 0, 4))
+	[
+		SNew(SBorder)
+		.BorderBackgroundColor(FLinearColor(FMLPTheme::Border().R, FMLPTheme::Border().G, FMLPTheme::Border().B, 0.5f))
+		.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+		.Padding(FMargin(2, 1))
+		[
+			TabBar.ToSharedRef()
+		]
+	];
+
+	// --- Parameter list for current tab ---
+	int32 VisibleCount = 0;
+	for (const auto& P : InstanceParams)
+	{
+		if (P->Group != CurrentTab) continue;
+		++VisibleCount;
+
+		TWeakPtr<FMLPInstanceParamVM> WeakVM = P;
+
+		ContentBox->AddSlot().AutoHeight().Padding(FMargin(2, 1))
+		[
+			SNew(SHorizontalBox)
+			// Override checkbox
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			[
+				SNew(SCheckBox)
+				.IsChecked_Lambda([WeakVM]() -> ECheckBoxState {
+					auto V = WeakVM.Pin();
+					return (V.IsValid() && V->bOverridden) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+				})
+				.OnCheckStateChanged_Lambda([this, WeakVM](ECheckBoxState State) {
+					auto V = WeakVM.Pin();
+					if (V.IsValid()) OnToggleOverride(V);
+				})
+				.ToolTipText(LOCTEXT("OverrideTT", "勾选=覆盖实例值"))
+			]
+			// Parameter name
+			+ SHorizontalBox::Slot().FillWidth(0.35f).VAlign(VAlign_Center).Padding(FMargin(4, 0))
+			[
+				SNew(STextBlock)
+				.Text_Lambda([WeakVM]() -> FText {
+					auto V = WeakVM.Pin();
+					return V.IsValid() ? FText::FromName(V->Name) : FText::GetEmpty();
+				})
+				.Font(FMLPTheme::FontBody())
+				.ColorAndOpacity_Lambda([WeakVM]() -> FSlateColor {
+					auto V = WeakVM.Pin();
+					if (!V.IsValid()) return FMLPTheme::Muted();
+					return V->bOverridden ? FMLPTheme::Foreground() : FMLPTheme::Muted();
+				})
+			]
+			// Value (read-only if not overridden, editable if overridden)
+			+ SHorizontalBox::Slot().FillWidth(0.55f).VAlign(VAlign_Center)
+			[
+				// Value display - simple text for now
+				SNew(STextBlock)
+				.Text_Lambda([WeakVM]() -> FText {
+					auto V = WeakVM.Pin();
+					if (!V.IsValid()) return FText::GetEmpty();
+					switch (V->Type)
+					{
+					case (int32)EMLPParameterType::Scalar:
+						return FText::FromString(FString::Printf(TEXT("%.3f"), V->ScalarValue));
+					case (int32)EMLPParameterType::Vector:
+						return FText::FromString(FString::Printf(TEXT("R:%.2f G:%.2f B:%.2f A:%.2f"),
+							V->VectorValue.R, V->VectorValue.G, V->VectorValue.B, V->VectorValue.A));
+					case (int32)EMLPParameterType::Texture:
+						return V->TextureValue.IsValid() ? FText::FromString(V->TextureValue->GetName()) : FText::FromString(TEXT("(无)"));
+					case (int32)EMLPParameterType::StaticBool:
+					case (int32)EMLPParameterType::StaticSwitch:
+						return V->BoolValue ? FText::FromString(TEXT("True")) : FText::FromString(TEXT("False"));
+					default:
+						return FText::FromString(TEXT("?"));
+					}
+				})
+				.Font(FMLPTheme::FontSmall())
+				.ColorAndOpacity(FMLPTheme::Muted())
+			]
+			// Override indicator
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(4, 0))
+			[
+				SNew(STextBlock)
+				.Text_Lambda([WeakVM]() -> FText {
+					auto V = WeakVM.Pin();
+					return (V.IsValid() && V->bOverridden) ? FText::FromString(TEXT("●")) : FText::GetEmpty();
+				})
+				.ColorAndOpacity(FMLPTheme::Accent())
+				.Font(FMLPTheme::FontSmall())
+			]
+		];
+	}
+
+	if (VisibleCount == 0)
+	{
+		ContentBox->AddSlot().AutoHeight().Padding(FMargin(4, 8))
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("NoTabParams", "该分组没有参数"))
+			.Font(FMLPTheme::FontBody())
+			.ColorAndOpacity(FMLPTheme::Muted())
+		];
+	}
+
+	return ContentBox.ToSharedRef();
+}
+
+FReply SMaterialLayoutProPanel::OnTabClicked(FName GroupName)
+{
+	CurrentTab = GroupName;
+	RebuildTree();
+	return FReply::Handled();
+}
+
+FReply SMaterialLayoutProPanel::OnAddTabClicked()
+{
+	// Simple: open a dialog to input group name, then move selected params to it.
+	// For now, just set all non-grouped params to a new group.
+	if (!TargetMaterial.IsValid()) return FReply::Handled();
+
+	// Use the search box text as group name if available, else auto-name.
+	FString NewName = FString::Printf(TEXT("Group_%d"), InstanceTabNames.Num());
+
+	auto* M = TargetMaterial.Get();
+	const FScopedTransaction T(FText::FromString(TEXT("新建分组")));
+	M->Modify();
+#if ENGINE_MAJOR_VERSION >= 5
+	for (UMaterialExpression* E : M->GetExpressions())
+#else
+	for (UMaterialExpression* E : M->Expressions)
+#endif
+	{
+		if (auto* P = Cast<UMaterialExpressionParameter>(E))
+		{
+			if (P->Group.IsNone())
+			{
+				P->Modify();
+				P->Group = FName(*NewName);
+			}
+		}
+	}
+	M->PostEditChange();
+	M->MarkPackageDirty();
+	PullFromInstance();
+	CurrentTab = FName(*NewName);
+	RebuildTree();
+	return FReply::Handled();
+}
+
+void SMaterialLayoutProPanel::OnDeleteTab(FName GroupName)
+{
+	if (!TargetMaterial.IsValid()) return;
+	auto* M = TargetMaterial.Get();
+	const FScopedTransaction T(FText::FromString(TEXT("删除分组")));
+	M->Modify();
+#if ENGINE_MAJOR_VERSION >= 5
+	for (UMaterialExpression* E : M->GetExpressions())
+#else
+	for (UMaterialExpression* E : M->Expressions)
+#endif
+	{
+		if (auto* P = Cast<UMaterialExpressionParameter>(E))
+		{
+			if (P->Group == GroupName)
+			{
+				P->Modify();
+				P->Group = NAME_None;
+			}
+		}
+	}
+	M->PostEditChange();
+	M->MarkPackageDirty();
+	PullFromInstance();
+	if (CurrentTab == GroupName) CurrentTab = InstanceTabNames.Num() > 0 ? InstanceTabNames[0] : NAME_None;
+	RebuildTree();
+}
+
+void SMaterialLayoutProPanel::OnRenameTab(FName OldName, const FText& NewName, ETextCommit::Type)
+{
+	if (!TargetMaterial.IsValid() || NewName.IsEmptyOrWhitespace()) return;
+	FName NewGroupName(*NewName.ToString());
+	auto* M = TargetMaterial.Get();
+	const FScopedTransaction T(FText::FromString(TEXT("重命名分组")));
+	M->Modify();
+#if ENGINE_MAJOR_VERSION >= 5
+	for (UMaterialExpression* E : M->GetExpressions())
+#else
+	for (UMaterialExpression* E : M->Expressions)
+#endif
+	{
+		if (auto* P = Cast<UMaterialExpressionParameter>(E))
+		{
+			if (P->Group == OldName)
+			{
+				P->Modify();
+				P->Group = NewGroupName;
+			}
+		}
+	}
+	M->PostEditChange();
+	M->MarkPackageDirty();
+	PullFromInstance();
+	CurrentTab = NewGroupName;
+	RebuildTree();
+}
+
+void SMaterialLayoutProPanel::OnToggleOverride(TSharedPtr<FMLPInstanceParamVM> Param)
+{
+	if (!Param.IsValid() || !TargetMaterialInstance.IsValid()) return;
+	UMaterialInstance* MI = TargetMaterialInstance.Get();
+	const FScopedTransaction T(FText::FromString(TEXT("切换参数覆盖")));
+	MI->Modify();
+
+	FHashedMaterialParameterInfo ParamInfo(Param->Name);
+	if (Param->bOverridden)
+	{
+		// Remove override.
+		MI->ScalarParameterValues.RemoveAll([&](const FScalarParameterValue& V) { return V.ParameterInfo.Name == Param->Name; });
+		MI->VectorParameterValues.RemoveAll([&](const FVectorParameterValue& V) { return V.ParameterInfo.Name == Param->Name; });
+		MI->TextureParameterValues.RemoveAll([&](const FTextureParameterValue& V) { return V.ParameterInfo.Name == Param->Name; });
+		Param->bOverridden = false;
+	}
+	else
+	{
+		// Add override with current value.
+		switch (Param->Type)
+		{
+		case (int32)EMLPParameterType::Scalar:
+			{
+				FScalarParameterValue SV;
+				SV.ParameterInfo = FMaterialParameterInfo(Param->Name);
+				SV.ParameterValue = Param->ScalarValue;
+				SV.ExpressionGUID = Param->ExpressionGUID;
+				MI->ScalarParameterValues.Add(SV);
+			}
+			break;
+		case (int32)EMLPParameterType::Vector:
+			{
+				FVectorParameterValue VV;
+				VV.ParameterInfo = FMaterialParameterInfo(Param->Name);
+				VV.ParameterValue = Param->VectorValue;
+				VV.ExpressionGUID = Param->ExpressionGUID;
+				MI->VectorParameterValues.Add(VV);
+			}
+			break;
+		case (int32)EMLPParameterType::Texture:
+			{
+				FTextureParameterValue TV;
+				TV.ParameterInfo = FMaterialParameterInfo(Param->Name);
+				TV.ParameterValue = Param->TextureValue.Get();
+				TV.ExpressionGUID = Param->ExpressionGUID;
+				MI->TextureParameterValues.Add(TV);
+			}
+			break;
+		default: break;
+		}
+		Param->bOverridden = true;
+	}
+
+	MI->PostEditChange();
+	MI->MarkPackageDirty();
+	RebuildTree();
+}
+
+void SMaterialLayoutProPanel::OnInstanceScalarChanged(TSharedPtr<FMLPInstanceParamVM> Param, float NewValue, ETextCommit::Type)
+{
+	if (!Param.IsValid() || !TargetMaterialInstance.IsValid()) return;
+	Param->ScalarValue = NewValue;
+	UMaterialInstance* MI = TargetMaterialInstance.Get();
+	MI->Modify();
+	FHashedMaterialParameterInfo ParamInfo(Param->Name);
+	// Update existing override or add new.
+	bool bFound = false;
+	for (auto& V : MI->ScalarParameterValues)
+	{
+		if (V.ParameterInfo.Name == Param->Name) { V.ParameterValue = NewValue; bFound = true; break; }
+	}
+	if (!bFound)
+	{
+		FScalarParameterValue SV;
+		SV.ParameterInfo = FMaterialParameterInfo(Param->Name);
+		SV.ParameterValue = NewValue;
+		SV.ExpressionGUID = Param->ExpressionGUID;
+		MI->ScalarParameterValues.Add(SV);
+		Param->bOverridden = true;
+	}
+	MI->PostEditChange();
+	MI->MarkPackageDirty();
+	RebuildTree();
+}
+
+void SMaterialLayoutProPanel::OnInstanceVectorChanged(TSharedPtr<FMLPInstanceParamVM> Param, FLinearColor NewColor)
+{
+	if (!Param.IsValid() || !TargetMaterialInstance.IsValid()) return;
+	Param->VectorValue = NewColor;
+	UMaterialInstance* MI = TargetMaterialInstance.Get();
+	MI->Modify();
+	FHashedMaterialParameterInfo ParamInfo(Param->Name);
+	bool bFound = false;
+	for (auto& V : MI->VectorParameterValues)
+	{
+		if (V.ParameterInfo.Name == Param->Name) { V.ParameterValue = NewColor; bFound = true; break; }
+	}
+	if (!bFound)
+	{
+		FVectorParameterValue VV;
+		VV.ParameterInfo = FMaterialParameterInfo(Param->Name);
+		VV.ParameterValue = NewColor;
+		VV.ExpressionGUID = Param->ExpressionGUID;
+		MI->VectorParameterValues.Add(VV);
+		Param->bOverridden = true;
+	}
+	MI->PostEditChange();
+	MI->MarkPackageDirty();
+	RebuildTree();
+}
+
+void SMaterialLayoutProPanel::OnInstanceTextureChanged(TSharedPtr<FMLPInstanceParamVM> Param, UObject* NewTexture)
+{
+	if (!Param.IsValid() || !TargetMaterialInstance.IsValid()) return;
+	Param->TextureValue = Cast<UTexture>(NewTexture);
+	UMaterialInstance* MI = TargetMaterialInstance.Get();
+	MI->Modify();
+	FHashedMaterialParameterInfo ParamInfo(Param->Name);
+	bool bFound = false;
+	for (auto& V : MI->TextureParameterValues)
+	{
+		if (V.ParameterInfo.Name == Param->Name) { V.ParameterValue = Cast<UTexture>(NewTexture); bFound = true; break; }
+	}
+	if (!bFound)
+	{
+		FTextureParameterValue TV;
+		TV.ParameterInfo = FMaterialParameterInfo(Param->Name);
+		TV.ParameterValue = Cast<UTexture>(NewTexture);
+		TV.ExpressionGUID = Param->ExpressionGUID;
+		MI->TextureParameterValues.Add(TV);
+		Param->bOverridden = true;
+	}
+	MI->PostEditChange();
+	MI->MarkPackageDirty();
+	RebuildTree();
+}
+
+void SMaterialLayoutProPanel::OnInstanceBoolChanged(TSharedPtr<FMLPInstanceParamVM> Param, bool bNewValue)
+{
+	if (!Param.IsValid() || !TargetMaterialInstance.IsValid()) return;
+	Param->BoolValue = bNewValue;
+	UMaterialInstance* MI = TargetMaterialInstance.Get();
+	MI->Modify();
+	// Static switch parameters on instances use a different mechanism - update via the static parameter set.
+	// For simplicity, we just mark the instance dirty.
+	MI->PostEditChange();
+	MI->MarkPackageDirty();
+	RebuildTree();
 }
 
 #undef LOCTEXT_NAMESPACE

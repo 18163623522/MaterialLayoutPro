@@ -12,6 +12,21 @@ struct FMLPParamVM;
 class SEditableTextBox;
 class SVerticalBox;
 
+/** A single parameter in instance mode: name + type + group + override state + value. */
+struct FMLPInstanceParamVM
+{
+	FName Name;
+	FName Group;
+	FGuid ExpressionGUID;
+	int32 Type = 0;  // EMLPParameterType
+	bool bOverridden = false;
+
+	float ScalarValue = 0.f;
+	FLinearColor VectorValue = FLinearColor::White;
+	TSoftObjectPtr<UTexture> TextureValue;
+	bool BoolValue = false;
+};
+
 class MATERIALLAYOUTPRO_API SMaterialLayoutProPanel : public SCompoundWidget
 {
 public:
@@ -65,6 +80,19 @@ private:
 	FReply OnApplyChangesClicked();
 	FReply OnSetGroupForSelectionClicked();
 
+	// --- Instance mode (tabbed group panel) ---
+	void PullFromInstance();
+	TSharedRef<SWidget> BuildInstanceContent();
+	FReply OnTabClicked(FName GroupName);
+	FReply OnAddTabClicked();
+	void OnRenameTab(FName OldName, const FText& NewName, ETextCommit::Type);
+	void OnDeleteTab(FName GroupName);
+	void OnToggleOverride(TSharedPtr<FMLPInstanceParamVM> Param);
+	void OnInstanceScalarChanged(TSharedPtr<FMLPInstanceParamVM> Param, float NewValue, ETextCommit::Type);
+	void OnInstanceVectorChanged(TSharedPtr<FMLPInstanceParamVM> Param, FLinearColor NewColor);
+	void OnInstanceTextureChanged(TSharedPtr<FMLPInstanceParamVM> Param, UObject* NewTexture);
+	void OnInstanceBoolChanged(TSharedPtr<FMLPInstanceParamVM> Param, bool bNewValue);
+
 	// --- Data ---
 	TSharedPtr<FMLPSession> Session;
 	TWeakObjectPtr<UMaterial> TargetMaterial;
@@ -87,4 +115,12 @@ private:
 	// --- Polling ---
 	TOptional<double> LastPollTime;
 	double SyncCooldownUntil = 0.0;
+
+	// --- Instance mode state ---
+	bool bInstanceMode = false;
+	FName CurrentTab;
+	TArray<TSharedPtr<FMLPInstanceParamVM>> InstanceParams;
+	TArray<FName> InstanceTabNames;
+	TSharedPtr<SVerticalBox> InstanceContentContainer;
+	TSharedPtr<SEditableTextBox> NewTabInput;
 };
