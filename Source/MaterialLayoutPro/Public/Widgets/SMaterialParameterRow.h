@@ -6,8 +6,8 @@
 
 class FMLPSession;
 
-/** Broadcast when the row is clicked (left button down). */
-DECLARE_DELEGATE_OneParam(FOnRowClicked, TSharedPtr<FMLPParamVM>);
+/** Broadcast when the row is clicked. bCtrl=toggle, bShift=range. */
+DECLARE_DELEGATE_ThreeParams(FOnRowClicked, TSharedPtr<FMLPParamVM>, bool /*bCtrl*/, bool /*bShift*/);
 
 class MATERIALLAYOUTPRO_API SMaterialParameterRow : public SCompoundWidget
 {

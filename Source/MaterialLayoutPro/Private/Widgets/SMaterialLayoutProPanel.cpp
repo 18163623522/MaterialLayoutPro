@@ -239,11 +239,19 @@ void SMaterialLayoutProPanel::Tick(const FGeometry& AllottedGeometry, double InC
 				}
 				if (NewSel.IsValid()) break;
 			}
-			if (NewSel != SelectedParam)
-			{
-				SelectedParam = NewSel;
-				RebuildTree();
-			}
+				if (NewSel.IsValid() && !IsSelected(NewSel))
+				{
+					SelectedParams.Reset();
+					SelectedParams.Add(NewSel);
+					LastSelectedParam = NewSel;
+					RebuildTree();
+				}
+				else if (!NewSel.IsValid() && SelectedParams.Num() > 0)
+				{
+					SelectedParams.Reset();
+					LastSelectedParam.Reset();
+					RebuildTree();
+				}
 		}
 	}
 
@@ -328,7 +336,7 @@ void SMaterialLayoutProPanel::RebuildTree()
 		for (const TSharedPtr<FMLPParamVM>& Param : Group->Parameters)
 		{
 			if (!PassesFilter(Param)) continue;
-			const bool bSel = (SelectedParam == Param);
+			const bool bSel = IsSelected(Param);
 			TreeContainer->AddSlot().AutoHeight()
 			[
 				SNew(SMaterialParameterRow)
@@ -346,24 +354,76 @@ void SMaterialLayoutProPanel::RebuildTree()
 // Selection + search
 // ============================================================================
 
-void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param)
+void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bCtrl, bool bShift)
 {
-	SelectedParam = Param;
+	if (!Param.IsValid())
+	{
+		ClearSelection();
+		RebuildTree();
+		return;
+	}
+
+	if (bCtrl)
+	{
+		// Toggle this param in the selection.
+		if (IsSelected(Param)) SelectedParams.Remove(Param);
+		else SelectedParams.Add(Param);
+	}
+	else if (bShift && LastSelectedParam.IsValid())
+	{
+		// Range select from LastSelectedParam to Param.
+		bool bFoundStart = false;
+		for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
+		{
+			for (const TSharedPtr<FMLPParamVM>& P : Group->Parameters)
+			{
+				if (P == LastSelectedParam || P == Param)
+				{
+					if (!IsSelected(P)) SelectedParams.Add(P);
+					bFoundStart = true;
+					continue;
+				}
+				if (bFoundStart)
+				{
+					if (!IsSelected(P)) SelectedParams.Add(P);
+					// Stop if we reached the target.
+					if (P == Param) break;
+				}
+			}
+			if (bFoundStart) break;
+		}
+	}
+	else
+	{
+		// Single select - replace.
+		SelectedParams.Reset();
+		SelectedParams.Add(Param);
+	}
+	LastSelectedParam = Param;
 	RebuildTree();
 
-	// Sync selection to the material graph: highlight + jump to the node.
-	if (Param.IsValid() && Param->SourceExpression.IsValid() && OwningMaterialEditor.IsValid())
+	// Sync first selected to the material graph.
+	if (Param->SourceExpression.IsValid() && OwningMaterialEditor.IsValid())
 	{
 		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
 		if (Editor.IsValid())
 		{
-			UMaterialExpression* Expr = Param->SourceExpression.Get();
-			// Set a cooldown so Tick's graph→panel sync ignores the change we just caused.
 			SyncCooldownUntil = FSlateApplication::Get().GetCurrentTime() + 0.5;
-			Editor->AddToSelection(Expr);
-			Editor->JumpToExpression(Expr);
+			Editor->AddToSelection(Param->SourceExpression.Get());
+			Editor->JumpToExpression(Param->SourceExpression.Get());
 		}
 	}
+}
+
+void SMaterialLayoutProPanel::ClearSelection()
+{
+	SelectedParams.Reset();
+	LastSelectedParam.Reset();
+}
+
+bool SMaterialLayoutProPanel::IsSelected(TSharedPtr<FMLPParamVM> Param) const
+{
+	return SelectedParams.Contains(Param);
 }
 
 void SMaterialLayoutProPanel::OnSearchChanged(const FText& NewText)
@@ -401,7 +461,7 @@ void SMaterialLayoutProPanel::RefreshParameters()
 	else
 	{
 		Session->Groups.Reset();
-		SelectedParam.Reset();
+		ClearSelection();
 	}
 	RebuildTree();
 }
@@ -472,6 +532,21 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 			.Text(LOCTEXT("IM","导入")).ToolTipText(LOCTEXT("IMT","导入 CSV")).OnClicked(this,&SMaterialLayoutProPanel::OnImportClicked)
 		]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
+		// Set-group for multi-selection: input box + apply button.
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0,0,2,0))
+		[
+			SAssignNew(SetGroupInput, SEditableTextBox)
+			.HintText(LOCTEXT("SetGroupHint", "设分组..."))
+			.Font(FMLPTheme::FontSmall())
+			.MinDesiredWidth(80.f)
+		]
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("SG","设分组")).ToolTipText(LOCTEXT("SGT","将选中的参数分配到输入的分组"))
+			.OnClicked(this, &SMaterialLayoutProPanel::OnSetGroupForSelectionClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		+ SHorizontalBox::Slot().AutoWidth()
 		[
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton")
@@ -499,6 +574,36 @@ FReply SMaterialLayoutProPanel::OnRefreshClicked() { RefreshParameters(); return
 FReply SMaterialLayoutProPanel::OnApplyChangesClicked()
 {
 	if (Session.IsValid()) { Session->PushDirty(); RefreshParameters(); }
+	return FReply::Handled();
+}
+
+FReply SMaterialLayoutProPanel::OnSetGroupForSelectionClicked()
+{
+	if (SelectedParams.Num() == 0 || !Session.IsValid() || !TargetMaterial.IsValid())
+		return FReply::Handled();
+
+	FName NewGroup = SetGroupInput.IsValid() ? FName(*SetGroupInput->GetText().ToString()) : NAME_None;
+
+	const FScopedTransaction Transaction(FText::FromString(TEXT("批量设分组")));
+	UMaterial* M = TargetMaterial.Get();
+	M->Modify();
+
+	for (const TSharedPtr<FMLPParamVM>& Param : SelectedParams)
+	{
+		if (!Param.IsValid() || !Param->SourceExpression.IsValid()) continue;
+		if (UMaterialExpressionParameter* ParamExpr = Cast<UMaterialExpressionParameter>(Param->SourceExpression.Get()))
+		{
+			ParamExpr->Modify();
+			ParamExpr->Group = NewGroup;
+			Param->Group = NewGroup;
+			Param->bDirty = true;
+		}
+	}
+
+	M->PostEditChange();
+	M->MarkPackageDirty();
+	if (SetGroupInput.IsValid()) SetGroupInput->SetText(FText::GetEmpty());
+	RefreshParameters();
 	return FReply::Handled();
 }
 

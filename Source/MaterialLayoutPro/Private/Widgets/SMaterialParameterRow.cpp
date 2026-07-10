@@ -182,9 +182,9 @@ FReply SMaterialParameterRow::OnMouseButtonDown(const FGeometry& MyGeometry, con
 	// so this only fires for clicks on empty row areas — no conflict.
 	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
-		OnClickedDelegate.ExecuteIfBound(VM);
-		// Don't handle the event — let it bubble to child widgets (editable text boxes,
-		// value editors) so they can receive focus / enter edit mode.
+		const bool bCtrl = MouseEvent.IsControlDown();
+		const bool bShift = MouseEvent.IsShiftDown();
+		OnClickedDelegate.ExecuteIfBound(VM, bCtrl, bShift);
 	}
 	return FReply::Unhandled();
 }
