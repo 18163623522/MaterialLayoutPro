@@ -244,13 +244,11 @@ void SMaterialLayoutProPanel::Tick(const FGeometry& AllottedGeometry, double InC
 					SelectedParams.Reset();
 					SelectedParams.Add(NewSel);
 					LastSelectedParam = NewSel;
-					RebuildTree();
 				}
 				else if (!NewSel.IsValid() && SelectedParams.Num() > 0)
 				{
 					SelectedParams.Reset();
 					LastSelectedParam.Reset();
-					RebuildTree();
 				}
 		}
 	}
