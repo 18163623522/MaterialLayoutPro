@@ -207,38 +207,6 @@ void SMaterialLayoutProPanel::Tick(const FGeometry& AllottedGeometry, double InC
 {
 	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
 
-	// --- Graph→Panel selection sync ---
-	// Only clear panel selection when the graph has NO selected parameter nodes.
-	// We do NOT sync graph→panel for node selection: AddToSelection is additive,
-	// causing stale nodes to override the user's panel click after cooldown expires.
-	if (OwningMaterialEditor.IsValid() && InCurrentTime > SyncCooldownUntil)
-	{
-		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
-		if (Editor.IsValid() && Session.IsValid())
-		{
-			TSet<UObject*> GraphSelection = Editor->GetSelectedNodes();
-			bool bHasParamSelected = false;
-			for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
-			{
-				for (const TSharedPtr<FMLPParamVM>& Param : Group->Parameters)
-				{
-					if (Param.IsValid() && Param->SourceExpression.IsValid() &&
-						GraphSelection.Contains(Param->SourceExpression.Get()))
-					{
-						bHasParamSelected = true;
-						break;
-					}
-				}
-				if (bHasParamSelected) break;
-			}
-			if (!bHasParamSelected && SelectedParams.Num() > 0)
-			{
-				SelectedParams.Reset();
-				LastSelectedParam.Reset();
-			}
-		}
-	}
-
 	// --- Editor binding poll (every ~0.5s) ---
 	if (LastPollTime.IsSet() && InCurrentTime - LastPollTime.GetValue() < 0.5)
 	{
@@ -352,11 +320,7 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bC
 		return;
 	}
 
-	// Update selection state. We do NOT call RebuildTree() here - the row background
-	// color is driven by a dynamic IsSelected query (lambda), so the highlight updates
-	// automatically on the next paint pass without destroying/recreating any widgets.
-	// This is critical: RebuildTree destroys all child widgets (text boxes, value editors),
-	// which kills focus and makes typing impossible.
+	// Update selection state only - no graph sync, no RebuildTree.
 
 	if (bCtrl)
 	{
@@ -399,16 +363,9 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bC
 	}
 	LastSelectedParam = Param;
 
-	// Sync selection to material graph (without jumping/panning the viewport).
-	if (Param->SourceExpression.IsValid() && OwningMaterialEditor.IsValid())
-	{
-		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
-		if (Editor.IsValid())
-		{
-			SyncCooldownUntil = FSlateApplication::Get().GetCurrentTime() + 0.5;
-			Editor->AddToSelection(Param->SourceExpression.Get());
-		}
-	}
+	// Do NOT call AddToSelection here - it causes the material editor to grab focus,
+	// which kills focus on the panel's text boxes. Graph selection sync is handled
+	// by JumpToParam (double-click) only.
 }
 
 void SMaterialLayoutProPanel::JumpToParam(TSharedPtr<FMLPParamVM> Param)
