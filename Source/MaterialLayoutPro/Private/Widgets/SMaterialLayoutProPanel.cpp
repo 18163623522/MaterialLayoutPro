@@ -345,6 +345,7 @@ void SMaterialLayoutProPanel::RebuildTree()
 				.bSelected(bSel)
 				.bDetailMode(true)
 				.OnClicked(FOnRowClicked::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::SelectParam))
+				.OnParamDropped(FOnParamDropped::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::OnParamDropped))
 			];
 		}
 	}
@@ -431,6 +432,95 @@ void SMaterialLayoutProPanel::ClearSelection()
 bool SMaterialLayoutProPanel::IsSelected(TSharedPtr<FMLPParamVM> Param) const
 {
 	return SelectedParams.Contains(Param);
+}
+
+// ============================================================================
+// Drag-drop reorder
+// ============================================================================
+
+void SMaterialLayoutProPanel::OnParamDropped(TSharedPtr<FMLPParamVM> DraggedParam, TSharedPtr<FMLPParamVM> TargetParam, bool bInsertBefore)
+{
+	if (!DraggedParam.IsValid() || !TargetParam.IsValid() || !Session.IsValid() || !TargetMaterial.IsValid())
+		return;
+	if (DraggedParam == TargetParam) return;
+
+	// Find the dragged param's source group and the target param's group.
+	TSharedPtr<FMLPGroupVM> SourceGroup;
+	TSharedPtr<FMLPGroupVM> TargetGroup;
+	int32 DraggedIndex = INDEX_NONE;
+
+	for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
+	{
+		int32 Idx = Group->Parameters.IndexOfByPredicate([&](const TSharedPtr<FMLPParamVM>& P) { return P == DraggedParam; });
+		if (Idx != INDEX_NONE)
+		{
+			SourceGroup = Group;
+			DraggedIndex = Idx;
+		}
+		if (Group->Parameters.ContainsByPredicate([&](const TSharedPtr<FMLPParamVM>& P) { return P == TargetParam; }))
+		{
+			TargetGroup = Group;
+		}
+	}
+
+	if (!SourceGroup.IsValid() || !TargetGroup.IsValid()) return;
+
+	// Single transaction for undo.
+	const FScopedTransaction Transaction(FText::FromString(TEXT("拖拽重排序参数")));
+	UMaterial* M = TargetMaterial.Get();
+	M->Modify();
+
+	// 1. Remove from source group.
+	SourceGroup->Parameters.RemoveAt(DraggedIndex);
+
+	// 2. Find insert index in target group.
+	int32 TargetIndex = TargetGroup->Parameters.IndexOfByPredicate([&](const TSharedPtr<FMLPParamVM>& P) { return P == TargetParam; });
+	if (TargetIndex == INDEX_NONE) return;
+
+	// If moving within the same group and the dragged item was before the target,
+	// the removal shifted indices - but we already removed, so TargetIndex is correct
+	// for the post-removal array. Adjust for insert position:
+	if (!bInsertBefore) ++TargetIndex;
+
+	// 3. Insert at target position.
+	TargetGroup->Parameters.Insert(DraggedParam, FMath::Clamp(TargetIndex, 0, TargetGroup->Parameters.Num()));
+
+	// 4. Update Group if cross-group move.
+	if (SourceGroup != TargetGroup)
+	{
+		DraggedParam->Group = TargetGroup->Name;
+	}
+
+	// 5. Recompute SortPriority for the target group (0, 1, 2, ...).
+	for (int32 i = 0; i < TargetGroup->Parameters.Num(); ++i)
+	{
+		TSharedPtr<FMLPParamVM>& Param = TargetGroup->Parameters[i];
+		if (Param.IsValid())
+		{
+			Param->SortPriority = i;
+			Param->bDirty = true;
+			Param->PushToExpression();
+		}
+	}
+
+	// If source group is different and still has params, recompute their priorities too.
+	if (SourceGroup != TargetGroup)
+	{
+		for (int32 i = 0; i < SourceGroup->Parameters.Num(); ++i)
+		{
+			TSharedPtr<FMLPParamVM>& Param = SourceGroup->Parameters[i];
+			if (Param.IsValid())
+			{
+				Param->SortPriority = i;
+				Param->bDirty = true;
+				Param->PushToExpression();
+			}
+		}
+	}
+
+	M->PostEditChange();
+	M->MarkPackageDirty();
+	RebuildTree();
 }
 
 void SMaterialLayoutProPanel::OnSearchChanged(const FText& NewText)

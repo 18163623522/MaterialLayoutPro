@@ -9,6 +9,9 @@ class FMLPSession;
 /** Broadcast when the row is clicked. bCtrl=toggle, bShift=range. */
 DECLARE_DELEGATE_ThreeParams(FOnRowClicked, TSharedPtr<FMLPParamVM>, bool /*bCtrl*/, bool /*bShift*/);
 
+/** Broadcast when a param is dropped onto this row. bInsertBefore=insert above, false=insert below. */
+DECLARE_DELEGATE_ThreeParams(FOnParamDropped, TSharedPtr<FMLPParamVM> /*Dragged*/, TSharedPtr<FMLPParamVM> /*Target*/, bool /*bInsertBefore*/);
+
 class MATERIALLAYOUTPRO_API SMaterialParameterRow : public SCompoundWidget
 {
 public:
@@ -21,6 +24,7 @@ public:
 		SLATE_ARGUMENT(bool, bSelected)
 		SLATE_ARGUMENT(bool, bDetailMode)
 		SLATE_EVENT(FOnRowClicked, OnClicked)
+		SLATE_EVENT(FOnParamDropped, OnParamDropped)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
@@ -28,6 +32,12 @@ public:
 	/** Preview - fires BEFORE child widgets. Intercept Ctrl/Shift+click for multi-select. */
 	virtual FReply OnPreviewMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
 	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
+	virtual FReply OnDragDetected(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
+
+	// --- Drag-drop overrides ---
+	virtual void OnDragEnter(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
+	virtual void OnDragLeave(const FDragDropEvent& DragDropEvent) override;
+	virtual FReply OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
 
 private:
 	TSharedPtr<FMLPParamVM> VM;
@@ -35,8 +45,14 @@ private:
 	bool bSelected = false;
 	bool bDetailMode = false;
 	FOnRowClicked OnClickedDelegate;
+	FOnParamDropped OnParamDroppedDelegate;
+
+	// Drop target visual state
+	bool bIsDropTarget = false;
+	bool bDropBefore = false;
 
 	TSharedRef<SWidget> BuildValueEditor();
+	TSharedRef<SWidget> BuildDragHandle();
 
 	void OnScalarCommitted(float NewValue, ETextCommit::Type CommitType);
 	void OnScalarDragged(float NewValue);

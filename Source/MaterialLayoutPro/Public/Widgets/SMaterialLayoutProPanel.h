@@ -40,6 +40,9 @@ private:
 	void ClearSelection();
 	bool IsSelected(TSharedPtr<FMLPParamVM> Param) const;
 
+	// --- Drag-drop reorder ---
+	void OnParamDropped(TSharedPtr<FMLPParamVM> DraggedParam, TSharedPtr<FMLPParamVM> TargetParam, bool bInsertBefore);
+
 	// --- Search ---
 	void OnSearchChanged(const FText& NewText);
 	bool PassesFilter(const TSharedPtr<FMLPParamVM>& Param) const;

@@ -1,5 +1,6 @@
 #include "Widgets/SMaterialParameterRow.h"
 #include "MaterialLayoutProTheme.h"
+#include "Model/MaterialParameterDragDrop.h"
 
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionParameter.h"
@@ -37,6 +38,7 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 	bSelected = InArgs._bSelected;
 	bDetailMode = InArgs._bDetailMode;
 	OnClickedDelegate = InArgs._OnClicked;
+	OnParamDroppedDelegate = InArgs._OnParamDropped;
 
 	if (!VM.IsValid())
 	{
@@ -74,102 +76,144 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 
 	auto GetBgColor = [this]() -> FLinearColor
 	{
+		if (bIsDropTarget) return FMLPTheme::AccentBg();     // drop highlight
 		if (bSelected) return FMLPTheme::SelectionBg();
 		return FLinearColor::Transparent;
 	};
 
 	ChildSlot
 	[
-		SNew(SBorder)
-		.BorderBackgroundColor_Lambda(GetBgColor)
-		.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
-		.Padding(FMargin(6.f, 2.f, 4.f, 2.f))
-		[
-			SNew(SHorizontalBox)
+		SNew(SVerticalBox)
 
-			// Type color dot
-			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-			.Padding(FMargin(0.f, 0.f, 6.f, 0.f))
+		// Drop indicator line (top) - shown when bDropBefore
+		+ SVerticalBox::Slot().AutoHeight()
+		[
+			SNew(SBorder)
+			.BorderBackgroundColor_Lambda([this]() -> FLinearColor {
+				return (bIsDropTarget && bDropBefore) ? FMLPTheme::Accent() : FLinearColor::Transparent;
+			})
+			.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+			.Padding(0.f)
 			[
-				SNew(SBox).WidthOverride(8.f).HeightOverride(8.f)
+				SNew(SBox).HeightOverride(2.f)
+			]
+		]
+
+		// Main row content
+		+ SVerticalBox::Slot().AutoHeight()
+		[
+			SNew(SBorder)
+			.BorderBackgroundColor_Lambda(GetBgColor)
+			.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
+			.Padding(FMargin(6.f, 2.f, 4.f, 2.f))
+			[
+				SNew(SHorizontalBox)
+
+				// Drag handle
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				.Padding(FMargin(0.f, 0.f, 4.f, 0.f))
 				[
-					SNew(SBorder)
-					.BorderBackgroundColor(TypeColor)
-					.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-					.Padding(0.f)
+					BuildDragHandle()
+				]
+
+				// Type color dot
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				.Padding(FMargin(0.f, 0.f, 6.f, 0.f))
+				[
+					SNew(SBox).WidthOverride(8.f).HeightOverride(8.f)
+					[
+						SNew(SBorder)
+						.BorderBackgroundColor(TypeColor)
+						.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+						.Padding(0.f)
+					]
+				]
+
+				// Name (editable)
+				+ SHorizontalBox::Slot().FillWidth(0.30f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
+				[
+					SNew(SEditableTextBox)
+					.Style(&EditableStyle)
+					.Text(FText::FromName(VM->Name))
+					.Font(FMLPTheme::FontBody())
+					.ForegroundColor(NameColor)
+					.SelectAllTextWhenFocused(true)
+					.OnTextCommitted(this, &SMaterialParameterRow::OnNameCommitted)
+					.ToolTipText(FText::FromString(TEXT("点击编辑参数名")))
+				]
+
+				// Value editor
+				+ SHorizontalBox::Slot().FillWidth(0.34f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
+				[
+					BuildValueEditor()
+				]
+
+				// Group (editable, detail mode)
+				+ SHorizontalBox::Slot().FillWidth(0.20f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
+				[
+					bDetailMode
+						? StaticCastSharedRef<SWidget>(
+							SNew(SEditableTextBox)
+							.Style(&EditableStyle)
+							.Text(FText::FromName(VM->Group))
+							.Font(FMLPTheme::FontSmall())
+							.ForegroundColor(FMLPTheme::Muted())
+							.OnTextCommitted(this, &SMaterialParameterRow::OnGroupCommitted)
+							.ToolTipText(FText::FromString(TEXT("点击编辑分组"))))
+						: StaticCastSharedRef<SWidget>(SNew(SBox))
+				]
+
+				// Sort priority (detail mode only)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				[
+					bDetailMode
+						? StaticCastSharedRef<SWidget>(
+							SNew(SBox).WidthOverride(48.f)
+							[
+								SNew(SNumericEntryBox<int32>)
+								.Value(TOptional<int32>(VM->SortPriority))
+								.Font(FMLPTheme::FontSmall())
+								.OnValueCommitted(this, &SMaterialParameterRow::OnPriorityCommitted)
+							])
+						: StaticCastSharedRef<SWidget>(SNew(SBox))
+				]
+
+				// Usage status label
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				.Padding(FMargin(6.f, 0.f, 0.f, 0.f))
+				[
+					SNew(STextBlock)
+					.Text_Lambda([this]() -> FText {
+						if (!VM.IsValid()) return FText::GetEmpty();
+						switch (VM->Usage)
+						{
+						case EMLPParameterUsage::Used:     return FText::FromString(TEXT("已用"));
+						case EMLPParameterUsage::Unused:   return FText::FromString(TEXT("未用"));
+						case EMLPParameterUsage::HalfUsed: return FText::FromString(TEXT("部分"));
+						case EMLPParameterUsage::Indirect: return FText::FromString(TEXT("间接"));
+						default:                           return FText::FromString(TEXT("?"));
+						}
+					})
+					.Font(FMLPTheme::FontSmall())
+					.ColorAndOpacity_Lambda([this]() -> FSlateColor {
+						if (!VM.IsValid()) return FMLPTheme::Muted();
+						return VM->GetUsageColor();
+					})
 				]
 			]
+		]
 
-			// Name (editable) — hover/focus highlights to show it's editable.
-			+ SHorizontalBox::Slot().FillWidth(0.30f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
+		// Drop indicator line (bottom) - shown when !bDropBefore
+		+ SVerticalBox::Slot().AutoHeight()
+		[
+			SNew(SBorder)
+			.BorderBackgroundColor_Lambda([this]() -> FLinearColor {
+				return (bIsDropTarget && !bDropBefore) ? FMLPTheme::Accent() : FLinearColor::Transparent;
+			})
+			.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+			.Padding(0.f)
 			[
-				SNew(SEditableTextBox)
-				.Style(&EditableStyle)
-				.Text(FText::FromName(VM->Name))
-				.Font(FMLPTheme::FontBody())
-				.ForegroundColor(NameColor)
-				.SelectAllTextWhenFocused(true)
-				.OnTextCommitted(this, &SMaterialParameterRow::OnNameCommitted)
-				.ToolTipText(FText::FromString(TEXT("点击编辑参数名")))
-			]
-
-			// Value editor
-			+ SHorizontalBox::Slot().FillWidth(0.34f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
-			[
-				BuildValueEditor()
-			]
-
-			// Group (editable, detail mode) — hover/focus highlights to show it's editable.
-			+ SHorizontalBox::Slot().FillWidth(0.20f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
-			[
-				bDetailMode
-					? StaticCastSharedRef<SWidget>(
-						SNew(SEditableTextBox)
-						.Style(&EditableStyle)
-						.Text(FText::FromName(VM->Group))
-						.Font(FMLPTheme::FontSmall())
-						.ForegroundColor(FMLPTheme::Muted())
-						.OnTextCommitted(this, &SMaterialParameterRow::OnGroupCommitted)
-						.ToolTipText(FText::FromString(TEXT("点击编辑分组"))))
-					: StaticCastSharedRef<SWidget>(SNew(SBox))
-			]
-
-			// Sort priority (detail mode only)
-			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-			[
-				bDetailMode
-					? StaticCastSharedRef<SWidget>(
-						SNew(SBox).WidthOverride(48.f)
-						[
-							SNew(SNumericEntryBox<int32>)
-							.Value(TOptional<int32>(VM->SortPriority))
-							.Font(FMLPTheme::FontSmall())
-							.OnValueCommitted(this, &SMaterialParameterRow::OnPriorityCommitted)
-						])
-					: StaticCastSharedRef<SWidget>(SNew(SBox))
-			]
-
-			// Usage status label — text tag with color, more intuitive than a dot.
-			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-			.Padding(FMargin(6.f, 0.f, 0.f, 0.f))
-			[
-				SNew(STextBlock)
-				.Text_Lambda([this]() -> FText {
-					if (!VM.IsValid()) return FText::GetEmpty();
-					switch (VM->Usage)
-					{
-					case EMLPParameterUsage::Used:     return FText::FromString(TEXT("已用"));
-					case EMLPParameterUsage::Unused:   return FText::FromString(TEXT("未用"));
-					case EMLPParameterUsage::HalfUsed: return FText::FromString(TEXT("部分"));
-					case EMLPParameterUsage::Indirect: return FText::FromString(TEXT("间接"));
-					default:                           return FText::FromString(TEXT("?"));
-					}
-				})
-				.Font(FMLPTheme::FontSmall())
-				.ColorAndOpacity_Lambda([this]() -> FSlateColor {
-					if (!VM.IsValid()) return FMLPTheme::Muted();
-					return VM->GetUsageColor();
-				})
+				SNew(SBox).HeightOverride(2.f)
 			]
 		]
 	];
@@ -203,6 +247,111 @@ FReply SMaterialParameterRow::OnMouseButtonDown(const FGeometry& MyGeometry, con
 	{
 		OnClickedDelegate.ExecuteIfBound(VM, false, false);
 	}
+	return FReply::Unhandled();
+}
+
+// ============================================================================
+// Drag handle
+// ============================================================================
+
+TSharedRef<SWidget> SMaterialParameterRow::BuildDragHandle()
+{
+	// The grip is a small SBorder that captures mouse-down to start a drag.
+	// We don't start the drag here directly - instead we call DetectDrag() which
+	// triggers OnDragDetected after the user moves the mouse enough.
+	return SNew(SBorder)
+		.BorderBackgroundColor(FLinearColor::Transparent)
+		.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+		.Padding(0.f)
+		.Cursor(EMouseCursor::GrabHand)
+		[
+			SNew(SBox)
+			.WidthOverride(12.f)
+			.HeightOverride(16.f)
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Center)
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(TEXT("\xE2\xA1\xAE"))) // ≡
+				.Font(FMLPTheme::FontSmall())
+				.ColorAndOpacity_Lambda([this]() -> FSlateColor {
+					return bSelected ? FMLPTheme::Accent() : FMLPTheme::Muted();
+				})
+			]
+		]
+		// Detect drag when user presses left mouse button on the grip.
+		.OnMouseButtonDown_Lambda([this](const FGeometry&, const FPointerEvent& MouseEvent) -> FReply {
+			if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && VM.IsValid())
+			{
+				return FReply::Handled().DetectDrag(AsShared(), EKeys::LeftMouseButton);
+			}
+			return FReply::Unhandled();
+		});
+}
+
+// ============================================================================
+// Drag-drop overrides
+// ============================================================================
+
+FReply SMaterialParameterRow::OnDragDetected(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+{
+	if (MouseEvent.IsMouseButtonDown(EKeys::LeftMouseButton) && VM.IsValid())
+	{
+		// Build the drag payload - just this row's VM for now.
+		// (Multi-select drag could be added later by checking SelectedParams on the panel.)
+		TArray<TSharedPtr<FMLPParamVM>> DraggedParams;
+		DraggedParams.Add(VM);
+
+		TSharedPtr<FMLPParameterDragDrop> DragOp = MakeShared<FMLPParameterDragDrop>(MoveTemp(DraggedParams));
+		return FReply::Handled().BeginDragDrop(DragOp.ToSharedRef());
+	}
+	return FReply::Unhandled();
+}
+
+void SMaterialParameterRow::OnDragEnter(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
+{
+	TSharedPtr<FMLPParameterDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPParameterDragDrop>();
+	if (DragOp.IsValid() && DragOp->IsValid() && VM.IsValid())
+	{
+		// Don't allow dropping onto yourself.
+		TSharedPtr<FMLPParamVM> FirstDragged = DragOp->GetFirstParam();
+		if (FirstDragged == VM) return;
+
+		bIsDropTarget = true;
+		// Top half = insert before, bottom half = insert after.
+		const FVector2D LocalMouse = MyGeometry.AbsoluteToLocal(DragDropEvent.GetScreenSpacePosition());
+		bDropBefore = (LocalMouse.Y < MyGeometry.GetLocalSize().Y * 0.5f);
+	}
+}
+
+void SMaterialParameterRow::OnDragLeave(const FDragDropEvent& DragDropEvent)
+{
+	bIsDropTarget = false;
+}
+
+FReply SMaterialParameterRow::OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
+{
+	TSharedPtr<FMLPParameterDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPParameterDragDrop>();
+	if (DragOp.IsValid() && DragOp->IsValid() && VM.IsValid())
+	{
+		TSharedPtr<FMLPParamVM> FirstDragged = DragOp->GetFirstParam();
+		if (FirstDragged == VM)
+		{
+			bIsDropTarget = false;
+			return FReply::Unhandled();
+		}
+
+		// Determine insert position from mouse Y.
+		const FVector2D LocalMouse = MyGeometry.AbsoluteToLocal(DragDropEvent.GetScreenSpacePosition());
+		const bool bInsertBefore = (LocalMouse.Y < MyGeometry.GetLocalSize().Y * 0.5f);
+
+		// Notify the panel - it will handle the actual array reorder + SortPriority reassignment.
+		OnParamDroppedDelegate.ExecuteIfBound(FirstDragged, VM, bInsertBefore);
+
+		bIsDropTarget = false;
+		return FReply::Handled();
+	}
+	bIsDropTarget = false;
 	return FReply::Unhandled();
 }
 

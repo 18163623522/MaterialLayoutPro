@@ -211,6 +211,17 @@ void FMLPSession::PullAll()
         return A->Name.ToString() < B->Name.ToString();
     });
 
+    // Sort parameters within each group by SortPriority (then Name as tiebreaker).
+    // This makes SortPriority changes from drag-drop / inline editing visible in the panel.
+    for (const TSharedPtr<FMLPGroupVM>& Group : Groups)
+    {
+        Group->Parameters.Sort([](const TSharedPtr<FMLPParamVM>& A, const TSharedPtr<FMLPParamVM>& B)
+        {
+            if (A->SortPriority != B->SortPriority) return A->SortPriority < B->SortPriority;
+            return A->Name.ToString() < B->Name.ToString();
+        });
+    }
+
     bPendingRefresh = false;
 }
 
