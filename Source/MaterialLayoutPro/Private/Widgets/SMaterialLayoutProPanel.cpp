@@ -573,6 +573,8 @@ void SMaterialLayoutProPanel::RefreshParameters()
 
 		// Rebind SelectedParams to the new VMs by name match.
 		TArray<TSharedPtr<FMLPParamVM>> NewSelection;
+		FName LastName = LastSelectedParam.IsValid() ? LastSelectedParam->Name : NAME_None;
+		TSharedPtr<FMLPParamVM> NewLastSelected;
 		for (const FName& SelName : SelectedNames)
 		{
 			for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
@@ -582,12 +584,14 @@ void SMaterialLayoutProPanel::RefreshParameters()
 					if (Param.IsValid() && Param->Name == SelName)
 					{
 						NewSelection.Add(Param);
+						if (Param->Name == LastName) NewLastSelected = Param;
 						break;
 					}
 				}
 			}
 		}
 		SelectedParams = MoveTemp(NewSelection);
+		LastSelectedParam = NewLastSelected;
 	}
 	else
 	{
