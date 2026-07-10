@@ -261,7 +261,7 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 					})
 				),
 				NAME_None,
-				FText::GetEmpty(), // icon-only, no visible label
+				FText::FromString(TEXT("窗口布局Pro")),
 				FText::FromString(TEXT("参数布局")),
 #if ENGINE_MAJOR_VERSION >= 5
 				FSlateIcon(FAppStyle::GetAppStyleSetName(), "DetailsPanel")
