@@ -39,34 +39,33 @@ private:
 	}
 
 public:
-	// --- Backgrounds / surfaces (engine-native with fallback) ---
+	// --- Backgrounds / surfaces (4.26 dark theme actual values) ---
 
-	static FLinearColor Background() { return ResolveColor(TEXT("Colors.Background"), FLinearColor(0.102f, 0.102f, 0.102f, 1.0f)); }
-	static FLinearColor Surface() { return ResolveColor(TEXT("Colors.Panel"), FLinearColor(0.165f, 0.165f, 0.165f, 1.0f)); }
-	static FLinearColor SurfaceAlt() { return Surface() * 0.85f; }
-	static FLinearColor SurfaceHover() { return ResolveColor(TEXT("Colors.Header"), FLinearColor(0.227f, 0.227f, 0.227f, 1.0f)); }
-	static FLinearColor Border() { return SurfaceHover(); }
+	static FLinearColor Background() { return ResolveColor(TEXT("Colors.Background"), FLinearColor(0.110f, 0.110f, 0.110f, 1.0f)); }    // #1C1C1C
+	static FLinearColor Surface() { return ResolveColor(TEXT("Colors.Panel"), FLinearColor(0.176f, 0.176f, 0.176f, 1.0f)); }      // #2D2D2D
+	static FLinearColor SurfaceAlt() { return Surface() * 0.90f; }
+	static FLinearColor SurfaceHover() { return ResolveColor(TEXT("Colors.Header"), FLinearColor(0.235f, 0.235f, 0.235f, 1.0f)); } // #3C3C3C
+	static FLinearColor Border() { return FLinearColor(0.082f, 0.082f, 0.082f, 1.0f); }  // #151515
 
-	// --- Text (engine-native with fallback) ---
+	// --- Text (4.26: softer foreground, not pure white) ---
 
-	static FLinearColor Foreground() { return ResolveColor(TEXT("Colors.Foreground"), FLinearColor(0.863f, 0.863f, 0.863f, 1.0f)); }
-	static FLinearColor Muted() { return ResolveColor(TEXT("Colors.Dim"), FLinearColor(0.604f, 0.604f, 0.604f, 1.0f)); }
+	static FLinearColor Foreground() { return ResolveColor(TEXT("Colors.Foreground"), FLinearColor(0.780f, 0.780f, 0.780f, 1.0f)); }  // #C7C7C7
+	static FLinearColor Muted() { return ResolveColor(TEXT("Colors.Dim"), FLinearColor(0.490f, 0.490f, 0.490f, 1.0f)); }   // #7D7D7D
 
-	// --- Accent / selection (engine-native with fallback) ---
+	// --- Accent / selection (4.26 selection blue: deeper, cooler than UE5) ---
 
 	static FLinearColor Accent()
 	{
-		FLinearColor C = ResolveColor(TEXT("Colors.AccentBlue"), FLinearColor(0.039f, 0.561f, 0.890f, 1.0f));
-		// Some engines only register "Colors.Selection" — try it as a secondary fallback.
+		FLinearColor C = ResolveColor(TEXT("Colors.AccentBlue"), FLinearColor(0.169f, 0.420f, 0.690f, 1.0f)); // #2B6BB0
 		if (!MLP_GET_STYLE().GetSlateColor(FName("Colors.AccentBlue")).IsColorSpecified())
 		{
 			C = ResolveColor(TEXT("Colors.Selection"), C);
 		}
 		return C;
 	}
-	static FLinearColor AccentBg() { FLinearColor C = Accent(); C.A = 0.25f; return C; }
+	static FLinearColor AccentBg() { FLinearColor C = Accent(); C.A = 0.22f; return C; }
 	static FLinearColor Selection() { return ResolveColor(TEXT("Colors.Selection"), Accent()); }
-	static FLinearColor SelectionBg() { FLinearColor C = Selection(); C.A = 0.30f; return C; }
+	static FLinearColor SelectionBg() { FLinearColor C = Selection(); C.A = 0.28f; return C; }
 
 	// --- Semantic colors (kept as constants — these are semantic, not theme-dependent) ---
 
