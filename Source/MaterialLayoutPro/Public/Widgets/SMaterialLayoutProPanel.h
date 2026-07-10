@@ -11,6 +11,7 @@ class FMLPSession;
 struct FMLPParamVM;
 class SEditableTextBox;
 class SVerticalBox;
+class SScrollBox;
 
 /** A single parameter in instance mode: name + type + group + override state + value. */
 struct FMLPInstanceParamVM
@@ -86,6 +87,15 @@ private:
 	// --- Instance mode (tabbed group panel) ---
 	void PullFromInstance();
 	TSharedRef<SWidget> BuildInstanceContent();
+	/** Refresh the instance panel content (tab bar + current tab rows) in-place.
+	  * Called by every instance-mode handler instead of RebuildTree(), which only
+	  * rebuilds the material-parameter tree and would leave the instance window stale. */
+	void RebuildInstanceContent();
+	/** Build just the tab bar row (tabs + [+] button). */
+	TSharedRef<SWidget> BuildInstanceTabBar();
+	/** Build just the parameter rows for the current tab. Each row has a type-matched
+	  * editable value control (SNumericEntryBox / color picker / asset picker / checkbox). */
+	void BuildInstanceRows(TSharedRef<SScrollBox> ContentBox);
 	FReply OnTabClicked(FName GroupName);
 	FReply OnAddTabClicked();
 	void OnRenameTab(FName OldName, const FText& NewName, ETextCommit::Type);
@@ -95,6 +105,9 @@ private:
 	void OnInstanceVectorChanged(TSharedPtr<FMLPInstanceParamVM> Param, FLinearColor NewColor);
 	void OnInstanceTextureChanged(TSharedPtr<FMLPInstanceParamVM> Param, UObject* NewTexture);
 	void OnInstanceBoolChanged(TSharedPtr<FMLPInstanceParamVM> Param, bool bNewValue);
+	/** Set a static-switch override value on the instance (add/update/remove entry in
+	  * StaticParameters.StaticSwitchParameters). Requires UpdateStaticPermutation. */
+	void SetStaticSwitchOverride(TSharedPtr<FMLPInstanceParamVM> Param, bool bOverride, bool bNewValue);
 
 	// --- Data ---
 	TSharedPtr<FMLPSession> Session;

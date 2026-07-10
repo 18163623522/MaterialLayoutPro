@@ -10,6 +10,7 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionComment.h"
+#include "StaticParameterSet.h"
 #include "Engine/Texture.h"
 #include "Widgets/SMaterialSortWorkbench.h"
 #include "Widgets/SMaterialParameterEditor.h"
@@ -32,6 +33,7 @@
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SNumericEntryBox.h"
+#include "Widgets/Colors/SColorPicker.h"
 #include "Styling/CoreStyle.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "IMaterialEditor.h"
@@ -1064,11 +1066,52 @@ void SMaterialLayoutProPanel::PullFromInstance()
 
 TSharedRef<SWidget> SMaterialLayoutProPanel::BuildInstanceContent()
 {
+	// Build a fresh top-level container that holds (1) the tab bar and (2) a scrollable
+	// list of parameter rows for the current tab. RebuildInstanceContent() will later
+	// clear + repopulate THIS container when state changes (tab switch / value edit).
 	TSharedPtr<SVerticalBox> ContentBox = SNew(SVerticalBox);
 	InstanceContentContainer = ContentBox;
 
-	// --- Tab bar ---
-	TSharedPtr<SHorizontalBox> TabBar = SNew(SHorizontalBox);
+	RebuildInstanceContent();
+
+	return ContentBox.ToSharedRef();
+}
+
+void SMaterialLayoutProPanel::RebuildInstanceContent()
+{
+	if (!InstanceContentContainer.IsValid()) return;
+
+	InstanceContentContainer->ClearChildren();
+
+	// --- Tab bar row ---
+	InstanceContentContainer->AddSlot().AutoHeight().Padding(FMargin(0, 2, 0, 4))
+	[
+		SNew(SBorder)
+		.BorderBackgroundColor(FLinearColor(FMLPTheme::Border().R, FMLPTheme::Border().G, FMLPTheme::Border().B, 0.5f))
+		.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+		.Padding(FMargin(2, 1))
+		[
+			BuildInstanceTabBar()
+		]
+	];
+
+	// --- Parameter rows for the current tab (inside a scroll box) ---
+	TSharedRef<SScrollBox> Scroller = SNew(SScrollBox);
+	BuildInstanceRows(Scroller);
+
+	InstanceContentContainer->AddSlot().FillHeight(1.0f)
+	[
+		Scroller
+	];
+}
+
+TSharedRef<SWidget> SMaterialLayoutProPanel::BuildInstanceTabBar()
+{
+	// The tab bar lives in the standalone instance SWindow which can outlive this panel —
+	// capture a weak ptr, never raw `this`.
+	TWeakPtr<SMaterialLayoutProPanel, ESPMode::NotThreadSafe> WeakPanel = StaticCastSharedRef<SMaterialLayoutProPanel>(AsShared());
+
+	TSharedRef<SHorizontalBox> TabBar = SNew(SHorizontalBox);
 
 	for (const FName& TabName : InstanceTabNames)
 	{
@@ -1080,7 +1123,10 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildInstanceContent()
 			.ButtonColorAndOpacity(bActive ? FMLPTheme::AccentBg() : FLinearColor::Transparent)
 			.ForegroundColor(bActive ? FMLPTheme::Accent() : FMLPTheme::Muted())
 			.ContentPadding(FMargin(8, 2))
-			.OnClicked(this, &SMaterialLayoutProPanel::OnTabClicked, TabName)
+			.OnClicked_Lambda([WeakPanel, TabName]() -> FReply {
+				if (auto Panel = WeakPanel.Pin()) return Panel->OnTabClicked(TabName);
+				return FReply::Handled();
+			})
 			[
 				SNew(STextBlock)
 				.Text(FText::FromName(TabName))
@@ -1096,7 +1142,10 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildInstanceContent()
 		.ButtonStyle(MLP_STYLE::Get(), "FlatButton")
 		.ContentPadding(FMargin(6, 2))
 		.ToolTipText(LOCTEXT("AddTabTT", "新建分组"))
-		.OnClicked(this, &SMaterialLayoutProPanel::OnAddTabClicked)
+		.OnClicked_Lambda([WeakPanel]() -> FReply {
+			if (auto Panel = WeakPanel.Pin()) return Panel->OnAddTabClicked();
+			return FReply::Handled();
+		})
 		[
 			SNew(STextBlock)
 			.Text(FText::FromString(TEXT("+")))
@@ -1104,18 +1153,16 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildInstanceContent()
 		]
 	];
 
-	ContentBox->AddSlot().AutoHeight().Padding(FMargin(0, 2, 0, 4))
-	[
-		SNew(SBorder)
-		.BorderBackgroundColor(FLinearColor(FMLPTheme::Border().R, FMLPTheme::Border().G, FMLPTheme::Border().B, 0.5f))
-		.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-		.Padding(FMargin(2, 1))
-		[
-			TabBar.ToSharedRef()
-		]
-	];
+	return TabBar;
+}
 
-	// --- Parameter list for current tab ---
+void SMaterialLayoutProPanel::BuildInstanceRows(TSharedRef<SScrollBox> ContentBox)
+{
+	// The instance content lives inside a standalone SWindow that can outlive this panel
+	// (e.g. the embedded tab is closed while the window stays open). All row lambdas must
+	// therefore capture a weak ptr to the panel, never raw `this`, to avoid use-after-free.
+	TWeakPtr<SMaterialLayoutProPanel, ESPMode::NotThreadSafe> WeakPanel = StaticCastSharedRef<SMaterialLayoutProPanel>(AsShared());
+
 	int32 VisibleCount = 0;
 	for (const auto& P : InstanceParams)
 	{
@@ -1124,7 +1171,181 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildInstanceContent()
 
 		TWeakPtr<FMLPInstanceParamVM> WeakVM = P;
 
-		ContentBox->AddSlot().AutoHeight().Padding(FMargin(2, 1))
+		// --- Value editor built per type ---
+		// Each editor writes back through OnInstanceScalarChanged / OnInstanceVectorChanged /
+		// OnInstanceTextureChanged / OnInstanceBoolChanged, which update the instance's
+		// override array AND call RebuildInstanceContent() so the row reflects the new value.
+		TSharedRef<SWidget> ValueEditor = [WeakPanel, WeakVM]() -> TSharedRef<SWidget>
+		{
+			auto V = WeakVM.Pin();
+			if (!V.IsValid()) return SNew(STextBlock).Text(FText::GetEmpty());
+
+			const bool bEditable = V->bOverridden;
+
+			switch (V->Type)
+			{
+			case (int32)EMLPParameterType::Scalar:
+			{
+				// SNumericEntryBox is read-only when not overridden (Value_TAttribute returns unset),
+				// editable when overridden. Matches the UE details-panel scalar row.
+				auto WeakV2 = WeakVM;
+				return SNew(SNumericEntryBox<float>)
+					.Value_Lambda([WeakV2]() -> TOptional<float> {
+						auto V2 = WeakV2.Pin();
+						if (!V2.IsValid() || !V2->bOverridden) return TOptional<float>();
+						return TOptional<float>(V2->ScalarValue);
+					})
+					.Font(FMLPTheme::FontSmall())
+					.AllowSpin(bEditable)
+					.MinValue(TOptional<float>()).MaxValue(TOptional<float>())
+					.MinSliderValue(TOptional<float>()).MaxSliderValue(TOptional<float>())
+					.MinDesiredValueWidth(80.f)
+					.IsEnabled(bEditable)
+					// Live update during spinner drag — just updates the VM value without
+					// rebuilding (rebuilding would steal focus from the spinner).
+					.OnValueChanged_Lambda([WeakV2](float NewVal) {
+						auto V2 = WeakV2.Pin();
+						if (V2.IsValid()) V2->ScalarValue = NewVal;
+					})
+					// Commit (Enter / focus loss) — write through to the instance + rebuild.
+					.OnValueCommitted_Lambda([WeakPanel, WeakV2](float NewVal, ETextCommit::Type) {
+						auto Panel = WeakPanel.Pin();
+						auto V2 = WeakV2.Pin();
+						if (Panel.IsValid() && V2.IsValid())
+						{
+							Panel->OnInstanceScalarChanged(V2, NewVal, ETextCommit::Default);
+						}
+					});
+			}
+			case (int32)EMLPParameterType::Vector:
+			{
+				auto WeakV2 = WeakVM;
+				// Color swatch (click opens picker) + RGBA text. Disabled when not overridden.
+				return SNew(SHorizontalBox)
+					.IsEnabled(bEditable)
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
+					[
+						SNew(SBox).WidthOverride(28.f).HeightOverride(16.f)
+						[
+							SNew(SBorder)
+							.BorderBackgroundColor_Lambda([WeakV2]() -> FLinearColor {
+								auto V2 = WeakV2.Pin();
+								if (!V2.IsValid()) return FLinearColor::Transparent;
+								FLinearColor C = V2->VectorValue;
+								if (C.A <= 0.001f) C.A = 1.0f; // UE4.26 VectorParam DefaultValue often A=0
+								return C;
+							})
+							.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+							.OnMouseButtonDown_Lambda([WeakPanel, WeakV2](const FGeometry&, const FPointerEvent& MouseEvent) -> FReply {
+								if (MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) return FReply::Unhandled();
+								auto V2 = WeakV2.Pin();
+								if (!V2.IsValid()) return FReply::Unhandled();
+								FColorPickerArgs Args;
+								Args.bUseAlpha = true;
+							#if ENGINE_MAJOR_VERSION >= 5
+								Args.InitialColor = V2->VectorValue;
+							#else
+								Args.InitialColorOverride = V2->VectorValue;
+							#endif
+								TWeakPtr<FMLPInstanceParamVM, ESPMode::NotThreadSafe> WeakParam = V2;
+								Args.OnColorCommitted = FOnLinearColorValueChanged::CreateLambda([WeakPanel, WeakParam](FLinearColor NewColor) {
+									auto Panel = WeakPanel.Pin();
+									auto Param = WeakParam.Pin();
+									if (Panel.IsValid() && Param.IsValid())
+									{
+										Panel->OnInstanceVectorChanged(Param, NewColor);
+									}
+								});
+								OpenColorPicker(Args);
+								return FReply::Handled();
+							})
+						]
+					]
+					+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+					[
+						SNew(STextBlock)
+						.Text_Lambda([WeakV2]() -> FText {
+							auto V2 = WeakV2.Pin();
+							if (!V2.IsValid()) return FText::GetEmpty();
+							const FLinearColor& C = V2->VectorValue;
+							return FText::FromString(FString::Printf(TEXT("R:%.2f G:%.2f B:%.2f A:%.2f"), C.R, C.G, C.B, C.A));
+						})
+						.Font(FMLPTheme::FontSmall())
+						.ColorAndOpacity(FMLPTheme::Muted())
+					];
+			}
+			case (int32)EMLPParameterType::Texture:
+			{
+				// Click button -> Content Browser asset picker. Disabled when not overridden.
+				return SNew(SButton)
+					.IsEnabled(bEditable)
+					.Text_Lambda([WeakVM]() -> FText {
+						auto V = WeakVM.Pin();
+						if (V.IsValid() && V->TextureValue.IsValid())
+							return FText::FromString(V->TextureValue->GetName());
+						return FText::FromString(TEXT("(无)"));
+					})
+					.ButtonStyle(MLP_STYLE::Get(), "FlatButton")
+					.ContentPadding(FMargin(2.f, 0.f))
+					.HAlign(HAlign_Left)
+					.OnClicked_Lambda([WeakPanel, WeakVM]() -> FReply {
+						auto Panel = WeakPanel.Pin();
+						if (!Panel.IsValid()) return FReply::Handled();
+						FContentBrowserModule& CB = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
+						FAssetPickerConfig Config;
+					#if ENGINE_MAJOR_VERSION >= 5
+						Config.Filter.ClassPaths.Add(FTopLevelAssetPath(TEXT("/Script/Engine"), TEXT("Texture2D")));
+					#else
+						Config.Filter.ClassNames.Add(TEXT("Texture2D"));
+					#endif
+						auto WeakV2 = WeakVM;
+						TWeakPtr<SMaterialLayoutProPanel, ESPMode::NotThreadSafe> WeakPanel2 = WeakPanel;
+						Config.OnAssetSelected = FOnAssetSelected::CreateLambda([WeakPanel2, WeakV2](const FAssetData& AssetData) -> void {
+							auto Panel2 = WeakPanel2.Pin();
+							auto V2 = WeakV2.Pin();
+							if (!Panel2.IsValid() || !V2.IsValid() || !AssetData.IsValid()) { FSlateApplication::Get().DismissAllMenus(); return; }
+							UObject* Asset = AssetData.GetAsset();
+							if (!Asset) { const FString Path = AssetData.PackageName.ToString() / AssetData.AssetName.ToString(); Asset = LoadObject<UObject>(nullptr, *Path); }
+							if (Asset) Panel2->OnInstanceTextureChanged(V2, Asset);
+							FSlateApplication::Get().DismissAllMenus();
+						});
+						Config.bAllowNullSelection = false;
+						Config.InitialAssetViewType = EAssetViewType::List;
+						TSharedRef<SWidget> Picker = CB.Get().CreateAssetPicker(Config);
+						FSlateApplication::Get().PushMenu(Panel->AsShared(), FWidgetPath(), Picker, FSlateApplication::Get().GetCursorPos(), FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu));
+						return FReply::Handled();
+					});
+			}
+			case (int32)EMLPParameterType::StaticBool:
+			case (int32)EMLPParameterType::StaticSwitch:
+			{
+				// Checkbox toggles bool value; disabled when not overridden.
+				auto WeakV2 = WeakVM;
+				return SNew(SCheckBox)
+					.IsEnabled(bEditable)
+					.IsChecked_Lambda([WeakV2]() -> ECheckBoxState {
+						auto V2 = WeakV2.Pin();
+						if (!V2.IsValid()) return ECheckBoxState::Unchecked;
+						return V2->BoolValue ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+					})
+					.OnCheckStateChanged_Lambda([WeakPanel, WeakV2](ECheckBoxState State) {
+						auto Panel = WeakPanel.Pin();
+						auto V2 = WeakV2.Pin();
+						if (Panel.IsValid() && V2.IsValid())
+						{
+							Panel->OnInstanceBoolChanged(V2, State == ECheckBoxState::Checked);
+						}
+					});
+			}
+			default:
+				return SNew(STextBlock)
+					.Text(FText::FromString(TEXT("(不支持)")))
+					.Font(FMLPTheme::FontSmall())
+					.ColorAndOpacity(FMLPTheme::Muted());
+			}
+		}();
+
+		ContentBox->AddSlot().Padding(FMargin(2, 1))
 		[
 			SNew(SHorizontalBox)
 			// Override checkbox
@@ -1135,14 +1356,15 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildInstanceContent()
 					auto V = WeakVM.Pin();
 					return (V.IsValid() && V->bOverridden) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 				})
-				.OnCheckStateChanged_Lambda([this, WeakVM](ECheckBoxState State) {
+				.OnCheckStateChanged_Lambda([WeakPanel, WeakVM](ECheckBoxState State) {
+					auto Panel = WeakPanel.Pin();
 					auto V = WeakVM.Pin();
-					if (V.IsValid()) OnToggleOverride(V);
+					if (Panel.IsValid() && V.IsValid()) Panel->OnToggleOverride(V);
 				})
 				.ToolTipText(LOCTEXT("OverrideTT", "勾选=覆盖实例值"))
 			]
 			// Parameter name
-			+ SHorizontalBox::Slot().FillWidth(0.35f).VAlign(VAlign_Center).Padding(FMargin(4, 0))
+			+ SHorizontalBox::Slot().FillWidth(0.32f).VAlign(VAlign_Center).Padding(FMargin(4, 0))
 			[
 				SNew(STextBlock)
 				.Text_Lambda([WeakVM]() -> FText {
@@ -1156,34 +1378,12 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildInstanceContent()
 					return V->bOverridden ? FMLPTheme::Foreground() : FMLPTheme::Muted();
 				})
 			]
-			// Value (read-only if not overridden, editable if overridden)
-			+ SHorizontalBox::Slot().FillWidth(0.55f).VAlign(VAlign_Center)
+			// Value editor (type-matched)
+			+ SHorizontalBox::Slot().FillWidth(0.58f).VAlign(VAlign_Center)
 			[
-				// Value display - simple text for now
-				SNew(STextBlock)
-				.Text_Lambda([WeakVM]() -> FText {
-					auto V = WeakVM.Pin();
-					if (!V.IsValid()) return FText::GetEmpty();
-					switch (V->Type)
-					{
-					case (int32)EMLPParameterType::Scalar:
-						return FText::FromString(FString::Printf(TEXT("%.3f"), V->ScalarValue));
-					case (int32)EMLPParameterType::Vector:
-						return FText::FromString(FString::Printf(TEXT("R:%.2f G:%.2f B:%.2f A:%.2f"),
-							V->VectorValue.R, V->VectorValue.G, V->VectorValue.B, V->VectorValue.A));
-					case (int32)EMLPParameterType::Texture:
-						return V->TextureValue.IsValid() ? FText::FromString(V->TextureValue->GetName()) : FText::FromString(TEXT("(无)"));
-					case (int32)EMLPParameterType::StaticBool:
-					case (int32)EMLPParameterType::StaticSwitch:
-						return V->BoolValue ? FText::FromString(TEXT("True")) : FText::FromString(TEXT("False"));
-					default:
-						return FText::FromString(TEXT("?"));
-					}
-				})
-				.Font(FMLPTheme::FontSmall())
-				.ColorAndOpacity(FMLPTheme::Muted())
+				ValueEditor
 			]
-			// Override indicator
+			// Override indicator dot
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(4, 0))
 			[
 				SNew(STextBlock)
@@ -1199,7 +1399,7 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildInstanceContent()
 
 	if (VisibleCount == 0)
 	{
-		ContentBox->AddSlot().AutoHeight().Padding(FMargin(4, 8))
+		ContentBox->AddSlot().Padding(FMargin(4, 8))
 		[
 			SNew(STextBlock)
 			.Text(LOCTEXT("NoTabParams", "该分组没有参数"))
@@ -1207,14 +1407,12 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildInstanceContent()
 			.ColorAndOpacity(FMLPTheme::Muted())
 		];
 	}
-
-	return ContentBox.ToSharedRef();
 }
 
 FReply SMaterialLayoutProPanel::OnTabClicked(FName GroupName)
 {
 	CurrentTab = GroupName;
-	RebuildTree();
+	RebuildInstanceContent();
 	return FReply::Handled();
 }
 
@@ -1249,7 +1447,7 @@ FReply SMaterialLayoutProPanel::OnAddTabClicked()
 	M->MarkPackageDirty();
 	PullFromInstance();
 	CurrentTab = FName(*NewName);
-	RebuildTree();
+	RebuildInstanceContent();
 	return FReply::Handled();
 }
 
@@ -1278,7 +1476,7 @@ void SMaterialLayoutProPanel::OnDeleteTab(FName GroupName)
 	M->MarkPackageDirty();
 	PullFromInstance();
 	if (CurrentTab == GroupName) CurrentTab = InstanceTabNames.Num() > 0 ? InstanceTabNames[0] : NAME_None;
-	RebuildTree();
+	RebuildInstanceContent();
 }
 
 void SMaterialLayoutProPanel::OnRenameTab(FName OldName, const FText& NewName, ETextCommit::Type)
@@ -1307,7 +1505,7 @@ void SMaterialLayoutProPanel::OnRenameTab(FName OldName, const FText& NewName, E
 	M->MarkPackageDirty();
 	PullFromInstance();
 	CurrentTab = NewGroupName;
-	RebuildTree();
+	RebuildInstanceContent();
 }
 
 void SMaterialLayoutProPanel::OnToggleOverride(TSharedPtr<FMLPInstanceParamVM> Param)
@@ -1317,13 +1515,27 @@ void SMaterialLayoutProPanel::OnToggleOverride(TSharedPtr<FMLPInstanceParamVM> P
 	const FScopedTransaction T(FText::FromString(TEXT("切换参数覆盖")));
 	MI->Modify();
 
-	FHashedMaterialParameterInfo ParamInfo(Param->Name);
 	if (Param->bOverridden)
 	{
 		// Remove override.
-		MI->ScalarParameterValues.RemoveAll([&](const FScalarParameterValue& V) { return V.ParameterInfo.Name == Param->Name; });
-		MI->VectorParameterValues.RemoveAll([&](const FVectorParameterValue& V) { return V.ParameterInfo.Name == Param->Name; });
-		MI->TextureParameterValues.RemoveAll([&](const FTextureParameterValue& V) { return V.ParameterInfo.Name == Param->Name; });
+		switch (Param->Type)
+		{
+		case (int32)EMLPParameterType::Scalar:
+			MI->ScalarParameterValues.RemoveAll([&](const FScalarParameterValue& V) { return V.ParameterInfo.Name == Param->Name; });
+			break;
+		case (int32)EMLPParameterType::Vector:
+			MI->VectorParameterValues.RemoveAll([&](const FVectorParameterValue& V) { return V.ParameterInfo.Name == Param->Name; });
+			break;
+		case (int32)EMLPParameterType::Texture:
+			MI->TextureParameterValues.RemoveAll([&](const FTextureParameterValue& V) { return V.ParameterInfo.Name == Param->Name; });
+			break;
+		case (int32)EMLPParameterType::StaticBool:
+		case (int32)EMLPParameterType::StaticSwitch:
+			// Static switch overrides live in StaticParameters, not the typed value arrays.
+			SetStaticSwitchOverride(Param, false, Param->BoolValue);
+			break;
+		default: break;
+		}
 		Param->bOverridden = false;
 	}
 	else
@@ -1358,6 +1570,10 @@ void SMaterialLayoutProPanel::OnToggleOverride(TSharedPtr<FMLPInstanceParamVM> P
 				MI->TextureParameterValues.Add(TV);
 			}
 			break;
+		case (int32)EMLPParameterType::StaticBool:
+		case (int32)EMLPParameterType::StaticSwitch:
+			SetStaticSwitchOverride(Param, true, Param->BoolValue);
+			break;
 		default: break;
 		}
 		Param->bOverridden = true;
@@ -1365,7 +1581,7 @@ void SMaterialLayoutProPanel::OnToggleOverride(TSharedPtr<FMLPInstanceParamVM> P
 
 	MI->PostEditChange();
 	MI->MarkPackageDirty();
-	RebuildTree();
+	RebuildInstanceContent();
 }
 
 void SMaterialLayoutProPanel::OnInstanceScalarChanged(TSharedPtr<FMLPInstanceParamVM> Param, float NewValue, ETextCommit::Type)
@@ -1374,7 +1590,6 @@ void SMaterialLayoutProPanel::OnInstanceScalarChanged(TSharedPtr<FMLPInstancePar
 	Param->ScalarValue = NewValue;
 	UMaterialInstance* MI = TargetMaterialInstance.Get();
 	MI->Modify();
-	FHashedMaterialParameterInfo ParamInfo(Param->Name);
 	// Update existing override or add new.
 	bool bFound = false;
 	for (auto& V : MI->ScalarParameterValues)
@@ -1392,7 +1607,7 @@ void SMaterialLayoutProPanel::OnInstanceScalarChanged(TSharedPtr<FMLPInstancePar
 	}
 	MI->PostEditChange();
 	MI->MarkPackageDirty();
-	RebuildTree();
+	RebuildInstanceContent();
 }
 
 void SMaterialLayoutProPanel::OnInstanceVectorChanged(TSharedPtr<FMLPInstanceParamVM> Param, FLinearColor NewColor)
@@ -1401,7 +1616,6 @@ void SMaterialLayoutProPanel::OnInstanceVectorChanged(TSharedPtr<FMLPInstancePar
 	Param->VectorValue = NewColor;
 	UMaterialInstance* MI = TargetMaterialInstance.Get();
 	MI->Modify();
-	FHashedMaterialParameterInfo ParamInfo(Param->Name);
 	bool bFound = false;
 	for (auto& V : MI->VectorParameterValues)
 	{
@@ -1418,7 +1632,7 @@ void SMaterialLayoutProPanel::OnInstanceVectorChanged(TSharedPtr<FMLPInstancePar
 	}
 	MI->PostEditChange();
 	MI->MarkPackageDirty();
-	RebuildTree();
+	RebuildInstanceContent();
 }
 
 void SMaterialLayoutProPanel::OnInstanceTextureChanged(TSharedPtr<FMLPInstanceParamVM> Param, UObject* NewTexture)
@@ -1427,7 +1641,6 @@ void SMaterialLayoutProPanel::OnInstanceTextureChanged(TSharedPtr<FMLPInstancePa
 	Param->TextureValue = Cast<UTexture>(NewTexture);
 	UMaterialInstance* MI = TargetMaterialInstance.Get();
 	MI->Modify();
-	FHashedMaterialParameterInfo ParamInfo(Param->Name);
 	bool bFound = false;
 	for (auto& V : MI->TextureParameterValues)
 	{
@@ -1444,7 +1657,7 @@ void SMaterialLayoutProPanel::OnInstanceTextureChanged(TSharedPtr<FMLPInstancePa
 	}
 	MI->PostEditChange();
 	MI->MarkPackageDirty();
-	RebuildTree();
+	RebuildInstanceContent();
 }
 
 void SMaterialLayoutProPanel::OnInstanceBoolChanged(TSharedPtr<FMLPInstanceParamVM> Param, bool bNewValue)
@@ -1452,11 +1665,55 @@ void SMaterialLayoutProPanel::OnInstanceBoolChanged(TSharedPtr<FMLPInstanceParam
 	if (!Param.IsValid() || !TargetMaterialInstance.IsValid()) return;
 	Param->BoolValue = bNewValue;
 	UMaterialInstance* MI = TargetMaterialInstance.Get();
+	// Static switch parameters live in StaticParameters.StaticSwitchParameters, not the typed
+	// value arrays. Update via UpdateStaticPermutation so the permutation recompiles.
+	SetStaticSwitchOverride(Param, Param->bOverridden, bNewValue);
+}
+
+void SMaterialLayoutProPanel::SetStaticSwitchOverride(TSharedPtr<FMLPInstanceParamVM> Param, bool bOverride, bool bNewValue)
+{
+	if (!Param.IsValid() || !TargetMaterialInstance.IsValid()) return;
+	UMaterialInstance* MI = TargetMaterialInstance.Get();
+
+	const FScopedTransaction T(FText::FromString(TEXT("修改静态开关参数")));
 	MI->Modify();
-	// Static switch parameters on instances use a different mechanism - update via the static parameter set.
-	// For simplicity, we just mark the instance dirty.
+
+	// Get the current static parameter set (parent + overrides), mutate the matching entry,
+	// and push it back with UpdateStaticPermutation. This is the same path the UE details
+	// panel uses for static switch editing.
+	FStaticParameterSet ParamSet;
+	MI->GetStaticParameterValues(ParamSet);
+
+	bool bChanged = false;
+	for (FStaticSwitchParameter& SP : ParamSet.StaticSwitchParameters)
+	{
+		if (SP.ParameterInfo.Name == Param->Name)
+		{
+			SP.bOverride = bOverride;
+			SP.Value = bNewValue;
+			bChanged = true;
+			break;
+		}
+	}
+	if (!bChanged && bOverride)
+	{
+		// Parameter exists in parent but wasn't in the instance set yet — append.
+		FStaticSwitchParameter SP(FMaterialParameterInfo(Param->Name), bNewValue, true, Param->ExpressionGUID);
+		ParamSet.StaticSwitchParameters.Add(SP);
+		bChanged = true;
+	}
+
+	if (bChanged)
+	{
+		// UpdateStaticPermutation recompiles the instance permutation; passing nullptr for
+		// the update context lets it allocate one internally.
+		MI->UpdateStaticPermutation(ParamSet);
+		Param->bOverridden = bOverride;
+	}
+
 	MI->PostEditChange();
 	MI->MarkPackageDirty();
+	RebuildInstanceContent();
 }
 
 // ============================================================================
