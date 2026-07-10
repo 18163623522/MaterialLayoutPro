@@ -1,6 +1,9 @@
 #include "Widgets/SMaterialParameterRow.h"
 #include "MaterialLayoutProTheme.h"
 
+#include "Materials/Material.h"
+#include "Materials/MaterialExpressionParameter.h"
+#include "ScopedTransaction.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/SBoxPanel.h"
@@ -97,10 +100,13 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 				.BorderImage(MLP_STYLE::GetBrush("WhiteBrush"))
 				.Padding(FMargin(0.f))
 				[
-					SNew(STextBlock)
+					SNew(SEditableTextBox)
 					.Text(FText::FromName(VM->Name))
 					.Font(FMLPTheme::FontBody())
-					.ColorAndOpacity(NameColor)
+					.ForegroundColor(NameColor)
+					.SelectAllTextWhenFocused(true)
+					.IsReadOnly(false)
+					.OnTextCommitted(this, &SMaterialParameterRow::OnNameCommitted)
 					.ToolTipText(MakeDiagnosticTooltip())
 				]
 			]
@@ -318,6 +324,34 @@ void SMaterialParameterRow::OnPriorityCommitted(int32 NewValue, ETextCommit::Typ
 		VM->SortPriority = NewValue;
 		VM->bDirty = true;
 		if (Session.IsValid()) Session->PushParamNow(VM);
+	}
+}
+
+void SMaterialParameterRow::OnNameCommitted(const FText& NewText, ETextCommit::Type CommitType)
+{
+	if (CommitType != ETextCommit::OnEnter && CommitType != ETextCommit::OnUserMovedFocus) return;
+	if (!VM.IsValid() || !VM->SourceExpression.IsValid() || !Session.IsValid()) return;
+
+	const FString NewNameStr = NewText.ToString();
+	if (NewNameStr.IsEmpty() || NewNameStr == VM->Name.ToString()) return;
+
+	// Rename the parameter on the source expression directly.
+	if (UMaterialExpressionParameter* ParamExpr = Cast<UMaterialExpressionParameter>(VM->SourceExpression.Get()))
+	{
+		const FName NewName(*NewNameStr);
+		if (ParamExpr->ParameterName != NewName)
+		{
+			const FScopedTransaction Transaction(FText::FromString(TEXT("重命名材质参数")));
+			ParamExpr->Modify();
+			ParamExpr->ParameterName = NewName;
+			VM->Name = NewName;
+
+			if (UMaterial* Mat = Session->TargetMaterial.Get())
+			{
+				Mat->PostEditChange();
+				Mat->MarkPackageDirty();
+			}
+		}
 	}
 }
 

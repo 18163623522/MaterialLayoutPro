@@ -399,11 +399,6 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 			.ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("DU","删除未用")).ToolTipText(LOCTEXT("DUT","删除未使用的参数")).OnClicked(this,&SMaterialLayoutProPanel::OnDeleteUnusedClicked)
 		]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("BR","重命名")).ToolTipText(LOCTEXT("BRT","批量重命名")).OnClicked(this,&SMaterialLayoutProPanel::OnBulkRenameClicked)
-		]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		+ SHorizontalBox::Slot().AutoWidth()
 		[
@@ -477,6 +472,7 @@ FReply SMaterialLayoutProPanel::OnOpenMaterialEditorClicked()
 
 FReply SMaterialLayoutProPanel::OnArchiveUnusedClicked()
 {
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnArchiveUnusedClicked: TargetMaterial valid=%d"), TargetMaterial.IsValid());
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
 	const auto* S = GetDefault<UMaterialLayoutProSettings>();
 	const FName Dep(S ? *S->DeprecatedGroupName : TEXT("Deprecated"));
@@ -484,45 +480,59 @@ FReply SMaterialLayoutProPanel::OnArchiveUnusedClicked()
 	auto* M = TargetMaterial.Get(); M->Modify();
 	auto Params = FMaterialParameterScanner::ScanMaterial(M);
 	FMaterialParameterUsageAnalyzer::Analyze(M, Params);
+	int32 Archived = 0;
 	for (auto& P : Params) if (P->Usage == EMLPParameterUsage::Unused)
-		if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E->Modify(); E->Group = Dep; }
+		if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E->Modify(); E->Group = Dep; ++Archived; }
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnArchiveUnused: scanned=%d archived=%d -> %s"), Params.Num(), Archived, *Dep.ToString());
 	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
 	return FReply::Handled();
 }
 
 FReply SMaterialLayoutProPanel::OnDeleteUnusedClicked()
 {
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnDeleteUnusedClicked: TargetMaterial valid=%d"), TargetMaterial.IsValid());
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
 	const FScopedTransaction T(LOCTEXT("DU","删除未使用的参数"));
 	auto* M = TargetMaterial.Get(); M->Modify();
 	auto Params = FMaterialParameterScanner::ScanMaterial(M);
 	FMaterialParameterUsageAnalyzer::Analyze(M, Params);
+	int32 Deleted = 0;
 	for (auto& P : Params) if (P->Usage == EMLPParameterUsage::Unused && P->Expression.IsValid())
+	{
 #if ENGINE_MAJOR_VERSION >= 5
 		M->GetExpressionCollection().RemoveExpression(P->Expression.Get());
 #else
 		M->Expressions.Remove(P->Expression.Get());
 #endif
+		++Deleted;
+	}
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnDeleteUnused: scanned=%d deleted=%d"), Params.Num(), Deleted);
 	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
 	return FReply::Handled();
 }
 
 FReply SMaterialLayoutProPanel::OnAutoGroupClicked()
 {
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnAutoGroupClicked: TargetMaterial valid=%d"), TargetMaterial.IsValid());
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
-	const auto* S = GetDefault<UMaterialLayoutProSettings>(); if (!S) return FReply::Handled();
+	const auto* S = GetDefault<UMaterialLayoutProSettings>();
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnAutoGroup: Settings=%p rules=%d"), S, S ? S->AutoGroupRules.Num() : -1);
+	if (!S) return FReply::Handled();
 	const FScopedTransaction T(LOCTEXT("AG","自动分组参数"));
 	auto* M = TargetMaterial.Get(); M->Modify();
 	auto Params = FMaterialParameterScanner::ScanMaterial(M);
+	int32 Grouped = 0;
 	for (auto& P : Params) { if (!P.IsValid()) continue; const FString N = P->Name.ToString();
 		for (const auto& R : S->AutoGroupRules) if (N.StartsWith(R.Prefix)) {
-			if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E->Modify(); E->Group = FName(*R.Group); } break; } }
+			if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E->Modify(); E->Group = FName(*R.Group); ++Grouped; } break; } }
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnAutoGroup: scanned=%d grouped=%d"), Params.Num(), Grouped);
 	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
 	return FReply::Handled();
 }
 
 FReply SMaterialLayoutProPanel::OnGroupByCommentClicked()
 {
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnGroupByCommentClicked: TargetMaterial valid=%d"), TargetMaterial.IsValid());
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
 	auto* M = TargetMaterial.Get(); const FScopedTransaction T(LOCTEXT("GBC","按注释分组参数"));
 	M->Modify();
@@ -548,6 +558,7 @@ FReply SMaterialLayoutProPanel::OnGroupByCommentClicked()
 
 FReply SMaterialLayoutProPanel::OnBulkRenameClicked()
 {
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] OnBulkRenameClicked: TargetMaterial valid=%d"), TargetMaterial.IsValid());
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
 	auto Params = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
 	FSlateApplication::Get().AddWindow(SNew(SMaterialBulkRenameDialog).TargetMaterial(TargetMaterial).Parameters(Params)

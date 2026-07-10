@@ -50,6 +50,7 @@ private:
 	void OnBoolChanged(bool bNewValue);
 	void OnGroupCommitted(const FText& NewText, ETextCommit::Type CommitType);
 	void OnPriorityCommitted(int32 NewValue, ETextCommit::Type CommitType);
+	void OnNameCommitted(const FText& NewText, ETextCommit::Type CommitType);
 
 	/** Build a multi-line diagnostic tooltip. */
 	FText MakeDiagnosticTooltip() const;
