@@ -780,9 +780,40 @@ FReply SMaterialLayoutProPanel::OnAutoGroupClicked()
 	auto* M = TargetMaterial.Get(); M->Modify();
 	auto Params = FMaterialParameterScanner::ScanMaterial(M);
 	int32 Grouped = 0;
-	for (auto& P : Params) { if (!P.IsValid()) continue; const FString N = P->Name.ToString();
-		for (const auto& R : S->AutoGroupRules) if (N.StartsWith(R.Prefix)) {
-			if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E->Modify(); E->Group = FName(*R.Group); ++Grouped; } break; } }
+	for (auto& P : Params)
+	{
+		if (!P.IsValid()) continue;
+		const FString N = P->Name.ToString();
+		bool bMatched = false;
+
+		// 1. Try user-defined prefix rules first (highest priority).
+		for (const auto& R : S->AutoGroupRules)
+		{
+			if (N.StartsWith(R.Prefix))
+			{
+				if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get()))
+				{ E->Modify(); E->Group = FName(*R.Group); ++Grouped; }
+				bMatched = true;
+				break;
+			}
+		}
+		if (bMatched) continue;
+
+		// 2. Fallback: extract group name from the first underscore segment.
+		//    e.g. "basecolor_strength" -> group "basecolor"
+		//    e.g. "basecolor_texture"  -> group "basecolor"
+		int32 UnderScoreIdx;
+		if (N.FindChar('_', UnderScoreIdx) && UnderScoreIdx > 0)
+		{
+			FString GroupName = N.Left(UnderScoreIdx);
+			GroupName.TrimStartAndEndInline();
+			if (!GroupName.IsEmpty())
+			{
+				if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get()))
+				{ E->Modify(); E->Group = FName(*GroupName); ++Grouped; }
+			}
+		}
+	}
 	M->PostEditChange(); M->MarkPackageDirty(); RefreshParameters();
 	return FReply::Handled();
 }
