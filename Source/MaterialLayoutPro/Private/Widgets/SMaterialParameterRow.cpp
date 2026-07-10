@@ -183,7 +183,8 @@ FReply SMaterialParameterRow::OnMouseButtonDown(const FGeometry& MyGeometry, con
 	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
 		OnClickedDelegate.ExecuteIfBound(VM);
-		return FReply::Handled();
+		// Don't handle the event — let it bubble to child widgets (editable text boxes,
+		// value editors) so they can receive focus / enter edit mode.
 	}
 	return FReply::Unhandled();
 }
