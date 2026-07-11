@@ -109,12 +109,14 @@ void SInstanceParamDragSource::Construct(const FArguments& InArgs)
 	];
 }
 
-FReply SInstanceParamDragSource::OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+FReply SInstanceParamDragSource::OnPreviewMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
+	// Preview fires BEFORE children, so we reliably get the mouse-down here (the :: icon child
+	// is a non-interactive STextBlock). Request drag detection on this widget; Slate then calls
+	// OnDragDetected after the user moves the mouse enough. Returning Handled swallows the
+	// event, which is fine since the handle has no interactive children.
 	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
-		// Request drag detection — Slate will call OnDragDetected after the user moves the
-		// mouse enough, so a plain click still falls through to child widgets (editable boxes).
 		return FReply::Handled().DetectDrag(AsShared(), EKeys::LeftMouseButton);
 	}
 	return FReply::Unhandled();
@@ -442,6 +444,21 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 {
 	TWeakPtr<SMaterialInstanceGroupPanel, ESPMode::NotThreadSafe> WeakSelf = StaticCastSharedRef<SMaterialInstanceGroupPanel>(AsShared());
 
+	// Reusable editable-text-box style with a dark-theme-friendly background (the default
+	// style is opaque white, making the text invisible on the dark group title bar). Mirrors
+	// the style used by SMaterialParameterRow so the two panels look consistent.
+	static FEditableTextBoxStyle EditableStyle;
+	static bool bStyleInit = false;
+	if (!bStyleInit)
+	{
+		EditableStyle = FCoreStyle::Get().GetWidgetStyle<FEditableTextBoxStyle>("NormalEditableTextBox");
+		EditableStyle.BackgroundImageNormal.TintColor = FSlateColor(FLinearColor(1.f, 1.f, 1.f, 0.04f));
+		EditableStyle.BackgroundImageHovered.TintColor = FSlateColor(FLinearColor(1.f, 1.f, 1.f, 0.12f));
+		EditableStyle.BackgroundImageFocused.TintColor = FSlateColor(FLinearColor(0.039f, 0.561f, 0.890f, 0.15f));
+		EditableStyle.Padding = FMargin(2.f, 1.f);
+		bStyleInit = true;
+	}
+
 	if (Groups.Num() == 0)
 	{
 		ContentBox->AddSlot().AutoHeight().Padding(FMargin(4, 8))
@@ -501,6 +518,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 					[
 						SNew(SEditableTextBox)
+						.Style(&EditableStyle)
 						.Text(FText::FromName(GroupName))
 						.Font(FMLPTheme::FontHeading())
 						.ForegroundColor(FMLPTheme::Foreground())
