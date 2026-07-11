@@ -666,13 +666,28 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 
 			ContentBox->AddSlot().AutoHeight().Padding(FMargin(2, 1))
 			[
-				SNew(SInstanceParamDragSource)
-				.Param(P)
+				SNew(SHorizontalBox)
+				// Drag handle (:: icon — drag to another group's title bar to move the param)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0, 0, 4, 0))
 				[
-					SNew(SHorizontalBox)
-					// Override checkbox
-					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+					SNew(SInstanceParamDragSource)
+					.Param(P)
 					[
+						SNew(SBox)
+						.WidthOverride(20.f).HeightOverride(20.f)
+						.HAlign(HAlign_Center).VAlign(VAlign_Center)
+						.ToolTipText(LOCTEXT("DragHandleTT", "拖拽到组标题栏可移动到此组"))
+						[
+							SNew(STextBlock)
+							.Text(FText::FromString(TEXT("::")))
+							.Font(FMLPTheme::FontSmall())
+							.ColorAndOpacity(FMLPTheme::Muted())
+						]
+					]
+				]
+				// Override checkbox
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				[
 					SNew(SCheckBox)
 					.IsChecked_Lambda([WeakVM]() -> ECheckBoxState {
 						auto V = WeakVM.Pin();
@@ -704,7 +719,8 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 				[
 					ValueEditor
 				]
-				// Group selector (move param to another group)
+				// Group selector (move param to another group). ComboBox button uses the editor's
+				// default (light) background, so force a DARK text color so it's readable on any theme.
 				+ SHorizontalBox::Slot().FillWidth(0.25f).VAlign(VAlign_Center).Padding(FMargin(4, 0))
 				[
 					SNew(SComboBox<TSharedPtr<FName>>)
@@ -713,7 +729,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 						return SNew(STextBlock)
 							.Text(Item.IsValid() ? FText::FromName(*Item) : FText::GetEmpty())
 							.Font(FMLPTheme::FontSmall())
-							.ColorAndOpacity(FMLPTheme::Foreground());
+							.ColorAndOpacity(FLinearColor(0.05f, 0.05f, 0.05f, 1.f));
 					})
 					.OnSelectionChanged_Lambda([WeakSelf, WeakVM](TSharedPtr<FName> NewItem, ESelectInfo::Type) {
 						auto Self = WeakSelf.Pin(); auto V = WeakVM.Pin();
@@ -724,7 +740,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 							Self->OnParamMovedToGroup(V, NewGroup);
 						}
 					})
-					.ForegroundColor(FMLPTheme::Foreground())
+					.ForegroundColor(FLinearColor(0.05f, 0.05f, 0.05f, 1.f))
 					[
 						SNew(STextBlock)
 						.Text_Lambda([WeakVM]() -> FText {
@@ -732,7 +748,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 							return V.IsValid() ? FText::FromName(V->EffectiveGroup) : FText::GetEmpty();
 						})
 						.Font(FMLPTheme::FontSmall())
-						.ColorAndOpacity(FMLPTheme::Foreground())
+						.ColorAndOpacity(FLinearColor(0.05f, 0.05f, 0.05f, 1.f))
 					]
 				]
 				// Override indicator
@@ -746,7 +762,6 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 					.ColorAndOpacity(FMLPTheme::Accent())
 					.Font(FMLPTheme::FontSmall())
 				]
-				] // end SInstanceParamDragSource content
 			];
 		}
 
