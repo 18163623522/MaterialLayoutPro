@@ -55,18 +55,13 @@ void SInstanceGroupDropTarget::Construct(const FArguments& InArgs)
 {
 	OnDroppedDelegate = InArgs._OnDropped;
 
-	// Wrap the content in a border whose color reacts to bIsDragOver.
+	// Put the content directly in ChildSlot (no intermediate SBorder). The highlight is applied
+	// via a content-wrapping border whose color reads bIsDragOver. Keeping the content as a
+	// direct child (rather than nested under an SBorder) ensures this SCompoundWidget stays
+	// the hit-target for drag-over events.
 	ChildSlot
 	[
-		SNew(SBorder)
-		.BorderBackgroundColor_Lambda([this]() -> FLinearColor {
-			return bIsDragOver ? FMLPTheme::Accent() : FLinearColor::Transparent;
-		})
-		.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-		.Padding(FMargin(0.f))
-		[
-			InArgs._Content.Widget
-		]
+		InArgs._Content.Widget
 	];
 }
 
@@ -111,10 +106,6 @@ void SInstanceParamDragSource::Construct(const FArguments& InArgs)
 
 FReply SInstanceParamDragSource::OnPreviewMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
-	// Preview fires BEFORE children, so we reliably get the mouse-down here (the :: icon child
-	// is a non-interactive STextBlock). Request drag detection on this widget; Slate then calls
-	// OnDragDetected after the user moves the mouse enough. Returning Handled swallows the
-	// event, which is fine since the handle has no interactive children.
 	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
 		return FReply::Handled().DetectDrag(AsShared(), EKeys::LeftMouseButton);
@@ -737,8 +728,10 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 				[
 					ValueEditor
 				]
-				// Group selector (move param to another group). ComboBox button uses the editor's
-				// default (light) background, so force a DARK text color so it's readable on any theme.
+				// Group selector (move param to another group). The panel background is dark
+				// (Background() ~= #1C1C1C), so use a LIGHT text color (Foreground) for the combo
+				// button content. The popup list uses the editor's light menu style, so its items
+				// get a dark color for readability there.
 				+ SHorizontalBox::Slot().FillWidth(0.25f).VAlign(VAlign_Center).Padding(FMargin(4, 0))
 				[
 					SNew(SComboBox<TSharedPtr<FName>>)
@@ -758,7 +751,8 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 							Self->OnParamMovedToGroup(V, NewGroup);
 						}
 					})
-					.ForegroundColor(FLinearColor(0.05f, 0.05f, 0.05f, 1.f))
+					.ForegroundColor(FMLPTheme::Foreground())
+					.ContentPadding(FMargin(2, 1))
 					[
 						SNew(STextBlock)
 						.Text_Lambda([WeakVM]() -> FText {
@@ -766,7 +760,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 							return V.IsValid() ? FText::FromName(V->EffectiveGroup) : FText::GetEmpty();
 						})
 						.Font(FMLPTheme::FontSmall())
-						.ColorAndOpacity(FLinearColor(0.05f, 0.05f, 0.05f, 1.f))
+						.ColorAndOpacity(FMLPTheme::Foreground())
 					]
 				]
 				// Override indicator

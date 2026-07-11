@@ -29,9 +29,10 @@ struct FMLPInstanceParamVM
 };
 
 /**
- * Drop target wrapping a group title bar. Highlights when an instance parameter is dragged
- * over it and fires a delegate carrying the param VM on drop. Used to drag params between
- * groups (writes AssetUserData only).
+ * Drop target wrapping a group title bar. A plain SCompoundWidget does NOT receive drag-over
+ * events reliably when it has child widgets (the children intercept them), so this subclass
+ * overrides the SWidget drag virtuals directly and routes the param VM to a delegate on drop.
+ * The drop-target highlight is a colored SBorder that reads bIsDragOver via a lambda.
  */
 class MATERIALLAYOUTPRO_API SInstanceGroupDropTarget : public SCompoundWidget
 {
@@ -55,9 +56,8 @@ private:
 };
 
 /**
- * Drag source wrapping a parameter row. On left-mouse-down it requests drag detection; on
- * the subsequent mouse-move Slate calls OnDragDetected, which begins a drag-drop operation
- * carrying the param's VM. The drop target is the group title bar (SInstanceGroupDropTarget).
+ * Drag source wrapping a parameter row handle. Overrides OnPreviewMouseButtonDown (which fires
+ * before children) to request drag detection, and OnDragDetected to begin the drag-drop op.
  */
 class MATERIALLAYOUTPRO_API SInstanceParamDragSource : public SCompoundWidget
 {
