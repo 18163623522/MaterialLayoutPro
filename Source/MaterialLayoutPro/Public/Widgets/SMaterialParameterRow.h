@@ -18,6 +18,9 @@ DECLARE_DELEGATE_RetVal_OneParam(bool, FIsParamSelected, TSharedPtr<FMLPParamVM>
 /** Broadcast when a param is dropped onto this row. bInsertBefore=insert above, false=insert below. */
 DECLARE_DELEGATE_ThreeParams(FOnParamDropped, TSharedPtr<FMLPParamVM> /*Dragged*/, TSharedPtr<FMLPParamVM> /*Target*/, bool /*bInsertBefore*/);
 
+/** Query a context-menu widget for a param (right-click). Returns the menu to show, or empty. */
+DECLARE_DELEGATE_RetVal_OneParam(TSharedRef<SWidget>, FOnGetContextMenu, TSharedPtr<FMLPParamVM>);
+
 class MATERIALLAYOUTPRO_API SMaterialParameterRow : public SCompoundWidget
 {
 public:
@@ -33,6 +36,7 @@ public:
 		SLATE_EVENT(FOnRowDoubleClicked, OnDoubleClicked)
 		SLATE_EVENT(FOnParamDropped, OnParamDropped)
 		SLATE_EVENT(FIsParamSelected, IsSelectedQuery)
+		SLATE_EVENT(FOnGetContextMenu, OnGetContextMenu)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
@@ -56,6 +60,7 @@ private:
 	FOnRowDoubleClicked OnDoubleClickedDelegate;
 	FOnParamDropped OnParamDroppedDelegate;
 	FIsParamSelected IsSelectedQueryDelegate;
+	FOnGetContextMenu OnGetContextMenuDelegate;
 
 	// Drop target visual state
 	bool bIsDropTarget = false;

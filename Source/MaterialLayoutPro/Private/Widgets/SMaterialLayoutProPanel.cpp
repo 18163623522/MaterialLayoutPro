@@ -21,6 +21,9 @@
 #include "ContentBrowserModule.h"
 #include "IContentBrowserSingleton.h"
 #include "Framework/Application/SlateApplication.h"
+#include "HAL/PlatformApplicationMisc.h"
+#include "Framework/Commands/UIAction.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "DesktopPlatformModule.h"
 #include "IDesktopPlatform.h"
 #include "Misc/FileHelper.h"
@@ -369,6 +372,7 @@ void SMaterialLayoutProPanel::RebuildTree()
 				.OnDoubleClicked(FOnRowDoubleClicked::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::JumpToParam))
 				.OnParamDropped(FOnParamDropped::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::OnParamDropped))
 				.IsSelectedQuery(FIsParamSelected::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::IsSelected))
+				.OnGetContextMenu(FOnGetContextMenu::CreateSP(SharedThis(this), &SMaterialLayoutProPanel::BuildRowContextMenu))
 			];
 		}
 	}
@@ -563,6 +567,122 @@ void SMaterialLayoutProPanel::OnParamDropped(TSharedPtr<FMLPParamVM> DraggedPara
 	M->MarkPackageDirty();
 	NotifyMaterialEditorChanged();
 	RebuildTree();
+}
+
+void SMaterialLayoutProPanel::MoveParamToGroup(TSharedPtr<FMLPParamVM> Param, FName NewGroup)
+{
+	if (!Param.IsValid() || !Session.IsValid() || !TargetMaterial.IsValid()) return;
+	if (NewGroup.IsNone() || Param->Group == NewGroup) return;
+
+	// Find source + target group VMs.
+	TSharedPtr<FMLPGroupVM> SourceGroup, TargetGroup;
+	for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
+	{
+		if (!Group.IsValid()) continue;
+		if (Group->Name == Param->Group) SourceGroup = Group;
+		if (Group->Name == NewGroup) TargetGroup = Group;
+	}
+	if (!TargetGroup.IsValid()) return;
+
+	const FScopedTransaction Transaction(FText::FromString(TEXT("移动参数到分组")));
+	UMaterial* M = TargetMaterial.Get();
+	M->Modify();
+
+	// Remove from source group's display list (if found).
+	if (SourceGroup.IsValid())
+	{
+		SourceGroup->Parameters.Remove(Param);
+	}
+
+	// Append to the target group and renumber its SortPriorities to stay contiguous.
+	Param->Group = NewGroup;
+	TargetGroup->Parameters.Add(Param);
+	for (int32 i = 0; i < TargetGroup->Parameters.Num(); ++i)
+	{
+		if (TargetGroup->Parameters[i].IsValid())
+		{
+			TargetGroup->Parameters[i]->SortPriority = i;
+			TargetGroup->Parameters[i]->bDirty = true;
+			TargetGroup->Parameters[i]->PushToExpression();
+		}
+	}
+
+	M->PostEditChange();
+	M->MarkPackageDirty();
+	NotifyMaterialEditorChanged();
+	RebuildTree();
+}
+
+TSharedRef<SWidget> SMaterialLayoutProPanel::BuildRowContextMenu(TSharedPtr<FMLPParamVM> Param)
+{
+	TWeakPtr<FMLPParamVM> WeakParam = Param;
+	TWeakPtr<SMaterialLayoutProPanel, ESPMode::NotThreadSafe> WeakSelf = StaticCastSharedRef<SMaterialLayoutProPanel>(AsShared());
+
+	FMenuBuilder MenuBuilder(true, nullptr);
+
+	// Copy parameter name to the OS clipboard.
+	MenuBuilder.AddMenuEntry(
+		LOCTEXT("CtxCopyName", "复制参数名"),
+		LOCTEXT("CtxCopyNameTT", "将此参数名复制到剪贴板"),
+		FSlateIcon(),
+		FUIAction(FExecuteAction::CreateLambda([WeakParam]()
+		{
+			auto P = WeakParam.Pin();
+			if (P.IsValid())
+			{
+				FPlatformApplicationMisc::ClipboardCopy(*P->Name.ToString());
+			}
+		}))
+	);
+
+	// Jump to the node in the material graph (same as double-click).
+	MenuBuilder.AddMenuEntry(
+		LOCTEXT("CtxJumpToNode", "在图中定位节点"),
+		LOCTEXT("CtxJumpToNodeTT", "跳转到材质图中此参数对应的表达式节点"),
+		FSlateIcon(),
+		FUIAction(FExecuteAction::CreateLambda([WeakSelf, WeakParam]()
+		{
+			auto Self = WeakSelf.Pin(); auto P = WeakParam.Pin();
+			if (Self.IsValid() && P.IsValid()) Self->JumpToParam(P);
+		}))
+	);
+
+	// "Move to group" submenu — lists every group except the param's current one.
+	TArray<FName> AllGroupNames;
+	for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
+	{
+		if (Group.IsValid()) AllGroupNames.Add(Group->Name);
+	}
+	const FName CurrentGroup = Param.IsValid() ? Param->Group : NAME_None;
+	MenuBuilder.AddSubMenu(
+		LOCTEXT("CtxMoveToGroup", "移动到分组"),
+		LOCTEXT("CtxMoveToGroupTT", "将此参数移到另一个分组(写入材质表达式 Group)"),
+		FNewMenuDelegate::CreateLambda([WeakSelf, WeakParam, AllGroupNames, CurrentGroup](FMenuBuilder& SubMenu)
+		{
+			for (const FName& GroupName : AllGroupNames)
+			{
+				if (GroupName == CurrentGroup) continue;  // hide the current group
+				SubMenu.AddMenuEntry(
+					FText::FromName(GroupName),
+					FText::GetEmpty(),
+					FSlateIcon(),
+					FUIAction(FExecuteAction::CreateLambda([WeakSelf, WeakParam, GroupName]()
+					{
+						auto Self = WeakSelf.Pin(); auto P = WeakParam.Pin();
+						if (Self.IsValid() && P.IsValid())
+						{
+							Self->MoveParamToGroup(P, GroupName);
+						}
+					}))
+				);
+			}
+		}),
+		false,
+		FSlateIcon(),
+		true
+	);
+
+	return MenuBuilder.MakeWidget();
 }
 
 void SMaterialLayoutProPanel::OnSearchChanged(const FText& NewText)

@@ -11,6 +11,7 @@ class FMLPSession;
 struct FMLPParamVM;
 class SEditableTextBox;
 class SVerticalBox;
+class SWidget;
 
 class MATERIALLAYOUTPRO_API SMaterialLayoutProPanel : public SCompoundWidget
 {
@@ -52,6 +53,11 @@ private:
 
 	// --- Drag-drop reorder ---
 	void OnParamDropped(TSharedPtr<FMLPParamVM> DraggedParam, TSharedPtr<FMLPParamVM> TargetParam, bool bInsertBefore);
+
+	/** Build the right-click context menu for a parameter row (copy name / jump / move to group). */
+	TSharedRef<SWidget> BuildRowContextMenu(TSharedPtr<FMLPParamVM> Param);
+	/** Move a param to a different group (writes the expression Group + pushes back to material). */
+	void MoveParamToGroup(TSharedPtr<FMLPParamVM> Param, FName NewGroup);
 
 	// --- Search ---
 	void OnSearchChanged(const FText& NewText);

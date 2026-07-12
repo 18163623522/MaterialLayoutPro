@@ -41,6 +41,7 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 	OnDoubleClickedDelegate = InArgs._OnDoubleClicked;
 	OnParamDroppedDelegate = InArgs._OnParamDropped;
 	IsSelectedQueryDelegate = InArgs._IsSelectedQuery;
+	OnGetContextMenuDelegate = InArgs._OnGetContextMenu;
 
 	if (!VM.IsValid())
 	{
@@ -238,6 +239,18 @@ FReply SMaterialParameterRow::OnPreviewMouseButtonDown(const FGeometry& MyGeomet
 		const bool bCtrl = MouseEvent.IsControlDown();
 		const bool bShift = MouseEvent.IsShiftDown();
 		OnClickedDelegate.ExecuteIfBound(VM, bCtrl, bShift);
+	}
+	else if (MouseEvent.GetEffectingButton() == EKeys::RightMouseButton && OnGetContextMenuDelegate.IsBound() && VM.IsValid())
+	{
+		// Right-click → ask the owning panel for a context menu and push it as a popup.
+		TSharedRef<SWidget> Menu = OnGetContextMenuDelegate.Execute(VM);
+		FSlateApplication::Get().PushMenu(
+			AsShared(),
+			FWidgetPath(),
+			Menu,
+			FSlateApplication::Get().GetCursorPos(),
+			FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu));
+		return FReply::Handled();
 	}
 	return SCompoundWidget::OnPreviewMouseButtonDown(MyGeometry, MouseEvent);
 }
