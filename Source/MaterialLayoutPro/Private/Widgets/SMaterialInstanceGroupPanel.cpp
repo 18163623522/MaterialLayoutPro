@@ -68,6 +68,7 @@ void SInstanceGroupDropTarget::Construct(const FArguments& InArgs)
 void SInstanceGroupDropTarget::OnDragEnter(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
 {
 	TSharedPtr<FMLPInstanceParamDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPInstanceParamDragDrop>();
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] DropTarget OnDragEnter op=%s"), DragOp.IsValid() ? TEXT("param") : TEXT("other/null"));
 	if (DragOp.IsValid() && DragOp->IsValid())
 	{
 		bIsDragOver = true;
@@ -79,10 +80,23 @@ void SInstanceGroupDropTarget::OnDragLeave(const FDragDropEvent& DragDropEvent)
 	bIsDragOver = false;
 }
 
+FReply SInstanceGroupDropTarget::OnDragOver(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
+{
+	TSharedPtr<FMLPInstanceParamDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPInstanceParamDragDrop>();
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] DropTarget OnDragOver op=%s"), DragOp.IsValid() ? TEXT("param") : TEXT("other/null"));
+	if (DragOp.IsValid() && DragOp->IsValid())
+	{
+		bIsDragOver = true;
+		return FReply::Handled();
+	}
+	return FReply::Unhandled();
+}
+
 FReply SInstanceGroupDropTarget::OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
 {
 	bIsDragOver = false;
 	TSharedPtr<FMLPInstanceParamDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPInstanceParamDragDrop>();
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] DropTarget OnDrop op=%s"), DragOp.IsValid() ? TEXT("param") : TEXT("other/null"));
 	if (DragOp.IsValid() && DragOp->IsValid())
 	{
 		OnDroppedDelegate.ExecuteIfBound(DragOp->Param);
@@ -106,6 +120,7 @@ void SInstanceParamDragSource::Construct(const FArguments& InArgs)
 
 FReply SInstanceParamDragSource::OnPreviewMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] DragSource OnPreviewMouseButtonDown param=%s"), Param.IsValid() ? *Param->Name.ToString() : TEXT("null"));
 	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
 		return FReply::Handled().DetectDrag(AsShared(), EKeys::LeftMouseButton);
@@ -115,6 +130,7 @@ FReply SInstanceParamDragSource::OnPreviewMouseButtonDown(const FGeometry& MyGeo
 
 FReply SInstanceParamDragSource::OnDragDetected(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
+	UE_LOG(LogTemp, Warning, TEXT("[MLP] DragSource OnDragDetected param=%s"), Param.IsValid() ? *Param->Name.ToString() : TEXT("null"));
 	if (MouseEvent.IsMouseButtonDown(EKeys::LeftMouseButton) && Param.IsValid())
 	{
 		TSharedPtr<FMLPInstanceParamDragDrop> DragOp = MakeShared<FMLPInstanceParamDragDrop>(Param);
@@ -172,6 +188,9 @@ void SMaterialInstanceGroupPanel::ResolveTarget()
 void SMaterialInstanceGroupPanel::Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime)
 {
 	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
+	// Cache our geometry each tick so OnDrop/OnDragOver can map absolute pointer coords to
+	// group-title-bar rectangles (reliable drag-drop without depending on HittestGrid).
+	PanelGeometry = AllottedGeometry;
 
 	// Re-resolve every ~0.5s in case the editor switched assets.
 	if (LastPollTime.IsSet() && InCurrentTime - LastPollTime.GetValue() < 0.5) return;
@@ -198,6 +217,58 @@ void SMaterialInstanceGroupPanel::Tick(const FGeometry& AllottedGeometry, double
 			}
 		}
 	}
+}
+
+FName SMaterialInstanceGroupPanel::FindGroupAtPosition(const FVector2D& AbsolutePos) const
+{
+	// Hit-test the cached group title-bar widgets by their absolute geometry. This is the
+	// reliable drop mechanism: SCompoundWidget sub-widgets aren't always in the HittestGrid,
+	// so we bypass it and compare rectangles directly.
+	for (const auto& Pair : GroupTitleWidgets)
+	{
+		TSharedPtr<SWidget> W = Pair.Value.Pin();
+		if (!W.IsValid()) continue;
+		const FGeometry& G = W->GetCachedGeometry();
+		const FSlateRect Rect = G.GetLayoutBoundingRect();
+		if (AbsolutePos.X >= Rect.Left && AbsolutePos.X <= Rect.Right &&
+			AbsolutePos.Y >= Rect.Top && AbsolutePos.Y <= Rect.Bottom)
+		{
+			return Pair.Key;
+		}
+	}
+	return NAME_None;
+}
+
+FReply SMaterialInstanceGroupPanel::OnDragOver(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
+{
+	TSharedPtr<FMLPInstanceParamDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPInstanceParamDragDrop>();
+	if (DragOp.IsValid() && DragOp->IsValid())
+	{
+		// Highlight the group under the cursor (refreshes the title-bar color via lambda).
+		const FName Over = FindGroupAtPosition(DragDropEvent.GetScreenSpacePosition());
+		if (Over != DragOverGroup)
+		{
+			DragOverGroup = Over;
+		}
+		return FReply::Handled();
+	}
+	return FReply::Unhandled();
+}
+
+FReply SMaterialInstanceGroupPanel::OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
+{
+	DragOverGroup = NAME_None;
+	TSharedPtr<FMLPInstanceParamDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPInstanceParamDragDrop>();
+	if (DragOp.IsValid() && DragOp->IsValid())
+	{
+		const FName Target = FindGroupAtPosition(DragDropEvent.GetScreenSpacePosition());
+		if (Target != NAME_None)
+		{
+			OnParamMovedToGroup(DragOp->Param, Target);
+			return FReply::Handled();
+		}
+	}
+	return FReply::Unhandled();
 }
 
 // ============================================================================
@@ -416,7 +487,8 @@ void SMaterialInstanceGroupPanel::RebuildInstanceContent()
 {
 	if (!ParamScroll.IsValid()) return;
 
-	// Refresh the shared group-name list for all row combo boxes before rebuilding.
+	// Clear cached group-title widgets (rebuilt below) and the shared combo options list.
+	GroupTitleWidgets.Reset();
 	CachedGroupNames.Reset();
 	for (const auto& G : Groups) CachedGroupNames.Add(MakeShared<FName>(G->Name));
 
@@ -471,18 +543,20 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 		const FName GroupName = Group->Name;
 		const int32 SortPrio = Group->SortPriority;
 
-		// --- Group title bar (also a DROP TARGET — drag a param row here to move it into this group) ---
+		// --- Group title bar. Tracked in GroupTitleWidgets so the panel-level OnDrop can
+		// hit-test it (the SCompoundWidget drop-target approach wasn't receiving events).
+		// Highlight when this is the group being dragged over (DragOverGroup).
+		TSharedPtr<SBorder> TitleBar;
 		ContentBox->AddSlot().AutoHeight().Padding(FMargin(0, 8, 0, 2))
 		[
-			SNew(SInstanceGroupDropTarget)
-			.OnDropped(SInstanceGroupDropTarget::FOnParamDroppedOnGroup::CreateLambda([WeakSelf, GroupName](TSharedPtr<FMLPInstanceParamVM> Param) {
-				if (auto Self = WeakSelf.Pin()) Self->OnParamMovedToGroup(Param, GroupName);
-			}))
-			[
-				SNew(SBorder)
-				.BorderBackgroundColor(FLinearColor(FMLPTheme::Accent().R, FMLPTheme::Accent().G, FMLPTheme::Accent().B, 0.18f))
-				.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-				.Padding(FMargin(4, 3, 4, 3))
+			SAssignNew(TitleBar, SBorder)
+			.BorderBackgroundColor_Lambda([WeakSelf, GroupName]() -> FLinearColor {
+				auto Self = WeakSelf.Pin();
+				if (Self.IsValid() && Self->DragOverGroup == GroupName) return FMLPTheme::Accent();
+				return FLinearColor(FMLPTheme::Accent().R, FMLPTheme::Accent().G, FMLPTheme::Accent().B, 0.18f);
+			})
+			.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+			.Padding(FMargin(4, 3, 4, 3))
 				[
 					SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
@@ -530,8 +604,13 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 					]
 				]
 			]
-			] // end SInstanceGroupDropTarget
 		];
+
+		// Track this group's title bar for panel-level drop hit-testing.
+		if (TitleBar.IsValid())
+		{
+			GroupTitleWidgets.Add(TPair<FName, TWeakPtr<SWidget>>(GroupName, TitleBar));
+		}
 
 		// --- Parameter rows for this group ---
 		for (const auto& P : Group->Parameters)
@@ -728,10 +807,9 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 				[
 					ValueEditor
 				]
-				// Group selector (move param to another group). The panel background is dark
-				// (Background() ~= #1C1C1C), so use a LIGHT text color (Foreground) for the combo
-				// button content. The popup list uses the editor's light menu style, so its items
-				// get a dark color for readability there.
+				// Group selector (move param to another group). Wrap the combo content in a
+				// semi-opaque SBorder so the text (light) is readable regardless of theme — the
+				// default combo button background is unpredictable across themes.
 				+ SHorizontalBox::Slot().FillWidth(0.25f).VAlign(VAlign_Center).Padding(FMargin(4, 0))
 				[
 					SNew(SComboBox<TSharedPtr<FName>>)
@@ -740,7 +818,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 						return SNew(STextBlock)
 							.Text(Item.IsValid() ? FText::FromName(*Item) : FText::GetEmpty())
 							.Font(FMLPTheme::FontSmall())
-							.ColorAndOpacity(FLinearColor(0.05f, 0.05f, 0.05f, 1.f));
+							.ColorAndOpacity(FLinearColor::Black);
 					})
 					.OnSelectionChanged_Lambda([WeakSelf, WeakVM](TSharedPtr<FName> NewItem, ESelectInfo::Type) {
 						auto Self = WeakSelf.Pin(); auto V = WeakVM.Pin();
@@ -751,16 +829,23 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 							Self->OnParamMovedToGroup(V, NewGroup);
 						}
 					})
-					.ForegroundColor(FMLPTheme::Foreground())
-					.ContentPadding(FMargin(2, 1))
+					.ComboBoxStyle(MLP_STYLE::Get(), "ComboBox")
+					.ForegroundColor(FLinearColor::White)
+					.ContentPadding(FMargin(4, 2))
 					[
-						SNew(STextBlock)
-						.Text_Lambda([WeakVM]() -> FText {
-							auto V = WeakVM.Pin();
-							return V.IsValid() ? FText::FromName(V->EffectiveGroup) : FText::GetEmpty();
-						})
-						.Font(FMLPTheme::FontSmall())
-						.ColorAndOpacity(FMLPTheme::Foreground())
+						SNew(SBorder)
+						.BorderBackgroundColor(FLinearColor(0.15f, 0.15f, 0.15f, 1.0f))
+						.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+						.Padding(FMargin(4, 1))
+						[
+							SNew(STextBlock)
+							.Text_Lambda([WeakVM]() -> FText {
+								auto V = WeakVM.Pin();
+								return V.IsValid() ? FText::FromName(V->EffectiveGroup) : FText::GetEmpty();
+							})
+							.Font(FMLPTheme::FontSmall())
+							.ColorAndOpacity(FLinearColor::White)
+						]
 					]
 				]
 				// Override indicator

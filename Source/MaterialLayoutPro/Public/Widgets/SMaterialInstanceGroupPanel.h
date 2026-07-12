@@ -29,10 +29,10 @@ struct FMLPInstanceParamVM
 };
 
 /**
- * Drop target wrapping a group title bar. A plain SCompoundWidget does NOT receive drag-over
- * events reliably when it has child widgets (the children intercept them), so this subclass
- * overrides the SWidget drag virtuals directly and routes the param VM to a delegate on drop.
- * The drop-target highlight is a colored SBorder that reads bIsDragOver via a lambda.
+ * Drop target that is itself an SBorder (a leaf widget that paints → registered in the
+ * HittestGrid → reliably receives drag-over/drop events). SCompoundWidget wrappers that don't
+ * paint are skipped by the HittestGrid, so they never get OnDragOver. This subclass paints the
+ * group title bar background and routes dropped params to a delegate.
  */
 class MATERIALLAYOUTPRO_API SInstanceGroupDropTarget : public SCompoundWidget
 {
@@ -48,6 +48,7 @@ public:
 
 	virtual void OnDragEnter(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
 	virtual void OnDragLeave(const FDragDropEvent& DragDropEvent) override;
+	virtual FReply OnDragOver(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
 	virtual FReply OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
 
 private:
@@ -108,8 +109,13 @@ public:
 
 	void Construct(const FArguments& InArgs);
 	virtual void Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime) override;
+	/** Handle a param dropped anywhere on the panel — hit-test against cached group title geometry. */
+	virtual FReply OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
+	virtual FReply OnDragOver(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
 
 private:
+	/** Find which group title bar (if any) contains the given absolute screen position. */
+	FName FindGroupAtPosition(const FVector2D& AbsolutePos) const;
 	// --- Editor binding / resolution ---
 	void BindToInstanceEditor(TWeakPtr<IMaterialEditor> InEditor);
 	void ResolveTarget();
@@ -167,4 +173,13 @@ private:
 	 *  ptr to its options source, so it must outlive the combo box — keep it as a member).
 	 *  Stored as shared ptrs because UE4.26 SComboBox requires OptionType to be a pointer type. */
 	TArray<TSharedPtr<FName>> CachedGroupNames;
-};
+
+	/** Group title-bar widgets built in the last RebuildInstanceContent, paired with their
+	 *  group name. Used by OnDrop to hit-test which group the mouse is over — a reliable
+	 *  fallback because SCompoundWidget drop targets aren't always registered in the HittestGrid. */
+	TArray<TPair<FName, TWeakPtr<SWidget>>> GroupTitleWidgets;
+	/** Name of the group the drag is currently hovering over (for highlight), or NAME_None. */
+	FName DragOverGroup;
+	/** Tick geometry of the panel (for converting pointer coords in OnDrop). */
+	FGeometry PanelGeometry;
+	};
