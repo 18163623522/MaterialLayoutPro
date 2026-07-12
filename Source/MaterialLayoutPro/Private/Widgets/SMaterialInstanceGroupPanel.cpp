@@ -1242,6 +1242,44 @@ TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildRowContextMenu(TSharedPtr<
 		}))
 	);
 
+	// "Move to group" submenu — lists every group except the param's current one; clicking one
+	// moves the param (writes AssetUserData only). Snapshot the group names now so the submenu
+	// is stable even if the list is rebuilt while the menu is open.
+	TArray<FName> AllGroupNames;
+	for (const auto& G : Groups)
+	{
+		if (G.IsValid()) AllGroupNames.Add(G->Name);
+	}
+	const FName CurrentGroup = Param.IsValid() ? Param->EffectiveGroup : NAME_None;
+	MenuBuilder.AddSubMenu(
+		LOCTEXT("CtxMoveToGroup", "移动到分组"),
+		LOCTEXT("CtxMoveToGroupTT", "将此参数移到另一个分组"),
+		FNewMenuDelegate::CreateLambda([WeakSelf, WeakParam, AllGroupNames, CurrentGroup](FMenuBuilder& SubMenu)
+		{
+			for (const FName& GroupName : AllGroupNames)
+			{
+				if (GroupName == CurrentGroup) continue;  // hide the current group
+				const FText GroupLabel = FText::FromName(GroupName);
+				SubMenu.AddMenuEntry(
+					GroupLabel,
+					FText::GetEmpty(),
+					FSlateIcon(),
+					FUIAction(FExecuteAction::CreateLambda([WeakSelf, WeakParam, GroupName]()
+					{
+						auto Self = WeakSelf.Pin(); auto P = WeakParam.Pin();
+						if (Self.IsValid() && P.IsValid())
+						{
+							Self->OnParamMovedToGroup(P, GroupName);
+						}
+					}))
+				);
+			}
+		}),
+		false,
+		FSlateIcon(),
+		true  // close window after selection (so the menu dismisses once a group is picked)
+	);
+
 	MenuBuilder.AddMenuSeparator();
 
 	// Toggle / reset override. Label adapts to the current state.
