@@ -287,8 +287,11 @@ void SMaterialLayoutProPanel::RebuildTree()
 		}
 		if (VisibleCount == 0) continue;
 
+		const FName GroupKey = Group->Name;
+		const bool bCollapsed = IsGroupCollapsed(GroupKey);
+
 		// Group header — compact, muted (original-style: small gray text, no colored bar).
-		// Group header: colored bar + [sort number] [name (count)], larger bold font.
+		// Group header: colored bar + [collapse arrow] [sort number] [name (count)], bold font.
 		TreeContainer->AddSlot().AutoHeight().Padding(FMargin(0.f, 8.f, 0.f, 2.f))
 		[
 			SNew(SBorder)
@@ -297,6 +300,21 @@ void SMaterialLayoutProPanel::RebuildTree()
 			.Padding(FMargin(4.f, 3.f, 4.f, 3.f))
 			[
 				SNew(SHorizontalBox)
+				// Collapse/expand arrow (▶ collapsed / ▼ expanded).
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
+				[
+					SNew(SButton)
+					.ButtonStyle(MLP_STYLE::Get(), "FlatButton")
+					.ContentPadding(FMargin(2.f, 0.f))
+					.Text_Lambda([this, GroupKey]() -> FText {
+						return IsGroupCollapsed(GroupKey) ? FText::FromString(TEXT("▶")) : FText::FromString(TEXT("▼"));
+					})
+					.ToolTipText(LOCTEXT("CollapseTT", "折叠/展开此分组"))
+					.OnClicked_Lambda([this, GroupKey]() -> FReply {
+						OnToggleGroupCollapsed(GroupKey);
+						return FReply::Handled();
+					})
+				]
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 				[
 					SNew(SBox).WidthOverride(36.f)
@@ -334,8 +352,10 @@ void SMaterialLayoutProPanel::RebuildTree()
 
 		// Inline parameter rows — clickable background (not a button) so internal
 		// editable boxes / value controls handle their own clicks without conflict.
+		// Collapsed groups render only their header (rows hidden).
 		for (const TSharedPtr<FMLPParamVM>& Param : Group->Parameters)
 		{
+			if (bCollapsed) break;  // collapsed: skip all rows
 			if (!PassesFilter(Param)) continue;
 			const bool bSel = IsSelected(Param);
 			TreeContainer->AddSlot().AutoHeight()
@@ -541,6 +561,26 @@ bool SMaterialLayoutProPanel::PassesFilter(const TSharedPtr<FMLPParamVM>& Param)
 	if (!Param.IsValid()) return false;
 	if (SearchText.IsEmpty()) return true;
 	return Param->Name.ToString().Contains(SearchText);
+}
+
+void SMaterialLayoutProPanel::OnToggleGroupCollapsed(FName GroupName)
+{
+	if (CollapsedGroups.Contains(GroupName))
+	{
+		CollapsedGroups.Remove(GroupName);
+	}
+	else
+	{
+		CollapsedGroups.Add(GroupName);
+	}
+	RebuildTree();
+}
+
+bool SMaterialLayoutProPanel::IsGroupCollapsed(FName GroupName) const
+{
+	// A search forces groups to expand so matching rows are visible.
+	if (!SearchText.IsEmpty()) return false;
+	return CollapsedGroups.Contains(GroupName);
 }
 
 // ============================================================================

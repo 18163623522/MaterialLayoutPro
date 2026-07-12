@@ -57,6 +57,10 @@ private:
 	void OnSearchChanged(const FText& NewText);
 	bool PassesFilter(const TSharedPtr<FMLPParamVM>& Param) const;
 
+	// --- Collapse/expand ---
+	void OnToggleGroupCollapsed(FName GroupName);
+	bool IsGroupCollapsed(FName GroupName) const;
+
 	// --- Status ---
 	FText GetTargetMaterialName() const;
 	FText GetStatusText() const;
@@ -96,6 +100,8 @@ private:
 
 	// --- Search filter ---
 	FString SearchText;
+	/** Names of groups the user has collapsed (session-only view state, not persisted). */
+	TSet<FName> CollapsedGroups;
 
 	// --- Polling ---
 	TOptional<double> LastPollTime;
