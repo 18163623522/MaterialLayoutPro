@@ -234,8 +234,11 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 
 								if (TSharedPtr<FTabManager> TM = Toolkit->GetTabManager())
 								{
+									// Toggle purely on liveness: live → close, not live → open.
+									// (Previously required IsForeground() too, which mis-fired when the
+									// tab was live but obscured — clicking would re-invoke instead of close.)
 									TSharedPtr<SDockTab> Tab = TM->FindExistingLiveTab(FMaterialLayoutProModule::EmbeddedTabId);
-									if (Tab.IsValid() && Tab->IsForeground())
+									if (Tab.IsValid())
 									{
 										Tab->RequestCloseTab();
 									}
@@ -338,8 +341,11 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 
 							if (TSharedPtr<FTabManager> TM = Toolkit->GetTabManager())
 							{
+								// Toggle purely on liveness: live → close, not live → open.
+								// RegisterInstanceSidebar above is called with bAutoInvoke=false, so it
+								// never opens the tab here — this toggle is the sole owner of open/close.
 								TSharedPtr<SDockTab> Tab = TM->FindExistingLiveTab(FMaterialLayoutProModule::InstanceSidebarTabId);
-								if (Tab.IsValid() && Tab->IsForeground())
+								if (Tab.IsValid())
 								{
 									Tab->RequestCloseTab();
 								}
@@ -390,7 +396,7 @@ void FMaterialLayoutProModule::RegisterMaterialEditorToolbarExtender()
 // Material Instance group window
 // ============================================================================
 
-void FMaterialLayoutProModule::RegisterInstanceSidebar(IMaterialEditor* InMaterialEditor)
+void FMaterialLayoutProModule::RegisterInstanceSidebar(IMaterialEditor* InMaterialEditor, bool bAutoInvoke)
 {
 	if (!InMaterialEditor) return;
 
@@ -406,16 +412,16 @@ void FMaterialLayoutProModule::RegisterInstanceSidebar(IMaterialEditor* InMateri
 		.SetDisplayName(LOCTEXT("InstanceSidebarTabLabel", "实例分组"))
 		.SetMenuType(ETabSpawnerMenuType::Enabled);
 
-	// Auto-open on first registration only (identical to RegisterEmbeddedSidebar).
-	// OnAssetOpenedInEditor fires for material instances too (via FAssetEditorToolkit::
-	// AddEditingObject -> NotifyAssetOpened), so this pre-creates the tab at editor-open time —
-	// BEFORE any toolbar button click. The toolbar button's toggle then sees the live tab and
-	// closes/opens it normally (no auto-invoke-vs-toggle conflict, because by the time the button
-	// is clicked the tab already exists and the guard below skips the invoke).
-	TSharedPtr<SDockTab> ExistingTab = TabManager->FindExistingLiveTab(InstanceSidebarTabId);
-	if (!ExistingTab.IsValid())
+	// Auto-open ONLY from the editor-open path (bAutoInvoke=true). The toolbar toggle handler
+	// calls this with bAutoInvoke=false; if it auto-invoked here, the just-opened tab would
+	// immediately be closed by the toggle's own close branch (open→foreground→close deadlock).
+	if (bAutoInvoke)
 	{
-		TabManager->TryInvokeTab(InstanceSidebarTabId);
+		TSharedPtr<SDockTab> ExistingTab = TabManager->FindExistingLiveTab(InstanceSidebarTabId);
+		if (!ExistingTab.IsValid())
+		{
+			TabManager->TryInvokeTab(InstanceSidebarTabId);
+		}
 	}
 }
 
@@ -453,7 +459,9 @@ void FMaterialLayoutProModule::OnAssetOpenedInEditor(UObject* Asset, IAssetEdito
 	}
 	else if (Asset->IsA<UMaterialInstance>())
 	{
-		RegisterInstanceSidebar(MatEditor);
+		// bAutoInvoke=true: pre-create the tab when the instance editor opens, so the user sees
+		// the panel immediately without clicking the toolbar button.
+		RegisterInstanceSidebar(MatEditor, true);
 	}
 }
 

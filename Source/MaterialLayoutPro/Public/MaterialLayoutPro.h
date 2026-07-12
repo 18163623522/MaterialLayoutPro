@@ -25,8 +25,11 @@ public:
 	/** Tab id of the dockable instance-group sidebar inside each Material Instance Editor window. */
 	static const FName InstanceSidebarTabId;
 
-	/** Register the instance-group dockable sidebar into a material instance editor's TabManager. */
-	void RegisterInstanceSidebar(IMaterialEditor* InMaterialEditor);
+	/** Register the instance-group dockable sidebar into a material instance editor's TabManager.
+	 *  bAutoInvoke=true pre-creates (opens) the tab — use ONLY from the editor-open path
+	 *  (OnAssetOpenedInEditor), never from the toolbar toggle handler (which owns open/close
+	 *  and would immediately close an auto-invoked tab). */
+	void RegisterInstanceSidebar(IMaterialEditor* InMaterialEditor, bool bAutoInvoke = false);
 	/** Spawn the instance sidebar tab content. */
 	TSharedRef<SDockTab> OnSpawnInstanceSidebarTab(const FSpawnTabArgs& Args, TWeakPtr<IMaterialEditor> InMaterialEditor);
 
