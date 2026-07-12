@@ -142,6 +142,11 @@ private:
 	void RebuildInstanceContent();
 	/** Build the group sections (title bar + rows) into the given vertical box. */
 	void BuildGroupSections(TSharedRef<SVerticalBox> ContentBox);
+	/** Case-insensitive substring match of a param name against the current search text.
+	 *  Empty search text matches everything. */
+	bool PassesSearchFilter(const FName& ParamName) const;
+	/** Called when the search box text changes — rebuilds content to re-apply the filter. */
+	void OnSearchChanged(const FText& NewText);
 
 	// --- Handlers ---
 	FReply OnRefreshClicked();
@@ -185,6 +190,8 @@ private:
 	// --- UI ---
 	TSharedPtr<SVerticalBox> ContentContainer;
 	TSharedPtr<SScrollBox> ParamScroll;
+	/** Current search-box text (case-insensitive substring filter on param names). */
+	FText SearchText;
 	TOptional<double> LastPollTime;
 	/** Persisted list of group names shared by all row SComboBoxes (SComboBox holds a raw
 	 *  ptr to its options source, so it must outlive the combo box — keep it as a member).

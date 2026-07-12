@@ -32,6 +32,7 @@
 #include "Widgets/Input/SNumericEntryBox.h"
 #include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SComboBox.h"
+#include "Widgets/Input/SSearchBox.h"
 #include "Widgets/Colors/SColorPicker.h"
 #include "Styling/CoreStyle.h"
 #include "IMaterialEditor.h"
@@ -200,6 +201,11 @@ void SMaterialInstanceGroupPanel::ComputeDropTarget(const FVector2D& AbsolutePos
 {
 	OutGroup = NAME_None;
 	OutInsertInGroup = INDEX_NONE;
+
+	// Disable drop targeting while a search filter is active: the filtered row set makes the
+	// insertion index relative to the visible subset, not the full group, so renumbering would
+	// scramble order. Clear the search first, then drag.
+	if (!SearchText.ToString().TrimStartAndEnd().IsEmpty()) return;
 
 	// 1. Which group? (whole-group Y-partition by title bars — already verified to work.)
 	const FName Group = FindGroupAtPosition(AbsolutePos);
@@ -475,6 +481,14 @@ TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildInitialContent()
 
 	// Toolbar + status persist; group list is rebuilt.
 	Inner->AddSlot().AutoHeight().Padding(FMargin(2))[ BuildToolbar() ];
+	// Search/filter row — case-insensitive substring match on param names; rebuilds content live.
+	Inner->AddSlot().AutoHeight().Padding(FMargin(2, 0, 2, 2))
+	[
+		SNew(SSearchBox)
+		.HintText(LOCTEXT("SearchHint", "搜索参数名..."))
+		.ToolTipText(LOCTEXT("SearchTT", "按参数名过滤(不区分大小写)。清空显示全部。"))
+		.OnTextChanged(this, &SMaterialInstanceGroupPanel::OnSearchChanged)
+	];
 	Inner->AddSlot().FillHeight(1.0f)
 	[
 		SAssignNew(ParamScroll, SScrollBox)
@@ -546,6 +560,25 @@ void SMaterialInstanceGroupPanel::RebuildInstanceContent()
 	];
 }
 
+bool SMaterialInstanceGroupPanel::PassesSearchFilter(const FName& ParamName) const
+{
+	// Empty search = show everything.
+	const FString Query = SearchText.ToString().TrimStartAndEnd();
+	if (Query.IsEmpty()) return true;
+	// Case-insensitive substring match on the param name.
+	return ParamName.ToString().Contains(Query);
+}
+
+void SMaterialInstanceGroupPanel::OnSearchChanged(const FText& NewText)
+{
+	SearchText = NewText;
+	// While filtering, drop drag state — the filtered layout invalidates row geometry, so a
+	// stale DragOverGroup/DragOverInsertIndex would point at the wrong rows.
+	DragOverGroup = NAME_None;
+	DragOverInsertIndex = INDEX_NONE;
+	RebuildInstanceContent();
+}
+
 void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> ContentBox)
 {
 	TWeakPtr<SMaterialInstanceGroupPanel, ESPMode::NotThreadSafe> WeakSelf = StaticCastSharedRef<SMaterialInstanceGroupPanel>(AsShared());
@@ -597,6 +630,19 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 
 		const FName GroupName = Group->Name;
 		const int32 SortPrio = Group->SortPriority;
+
+		// Search filter: when a search is active, hide groups that have params but none match.
+		// Genuinely-empty groups (Parameters.Num()==0, created via "新建分组") stay visible so the
+		// user can still drop/move params into them while filtering.
+		if (!SearchText.ToString().TrimStartAndEnd().IsEmpty() && Group->Parameters.Num() > 0)
+		{
+			bool bAnyMatch = false;
+			for (const auto& P : Group->Parameters)
+			{
+				if (P.IsValid() && PassesSearchFilter(P->Name)) { bAnyMatch = true; break; }
+			}
+			if (!bAnyMatch) continue;  // whole group filtered out
+		}
 		// Whether the drag is currently targeting this group (drives both the title-bar
 		// highlight AND the row-level blue-line indicator).
 		const bool bDropTargetHere = (DragOverGroup == GroupName);
@@ -674,6 +720,10 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 		// --- Parameter rows for this group ---
 		for (const auto& P : Group->Parameters)
 		{
+			// Skip params that don't match the search filter (group-level pre-check above already
+			// hides groups with zero matches; this hides non-matching rows within a partial match).
+			if (!P.IsValid() || !PassesSearchFilter(P->Name)) continue;
+
 			TWeakPtr<FMLPInstanceParamVM> WeakVM = P;
 
 			// Value editor per type (always editable; editing auto-enables override).
@@ -1282,6 +1332,18 @@ FText SMaterialInstanceGroupPanel::GetInstanceName() const
 FText SMaterialInstanceGroupPanel::GetStatusText() const
 {
 	if (!TargetInstance.IsValid()) return LOCTEXT("NS", "未选择材质实例");
+
+	// When a search is active, show how many params match out of the total.
+	const FString Query = SearchText.ToString().TrimStartAndEnd();
+	if (!Query.IsEmpty())
+	{
+		int32 Matched = 0;
+		for (const auto& P : AllParams)
+		{
+			if (P.IsValid() && P->Name.ToString().Contains(Query)) ++Matched;
+		}
+		return FText::FromString(FString::Printf(TEXT("匹配 %d / %d 参数"), Matched, AllParams.Num()));
+	}
 	return FText::FromString(FString::Printf(TEXT("%d 参数 | %d 分组"), AllParams.Num(), Groups.Num()));
 }
 
