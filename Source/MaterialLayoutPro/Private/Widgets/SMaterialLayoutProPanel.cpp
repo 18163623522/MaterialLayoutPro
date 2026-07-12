@@ -432,9 +432,24 @@ void SMaterialLayoutProPanel::SelectParam(TSharedPtr<FMLPParamVM> Param, bool bC
 	}
 	LastSelectedParam = Param;
 
-	// Do NOT call AddToSelection here - it causes the material editor to grab focus,
-	// which kills focus on the panel's text boxes. Graph selection sync is handled
-	// by JumpToParam (double-click) only.
+	// Sync the graph selection to highlight the clicked param's node. AddToSelection only sets
+	// node selection state (it does NOT grab focus or recenter the view — that's JumpToExpression's
+	// job, bound to double-click below). It is additive, so the graph accumulates highlights until
+	// the user interacts with the graph (which clears it natively); this matches multi-select intent.
+	if (OwningMaterialEditor.IsValid())
+	{
+		TSharedPtr<IMaterialEditor> Editor = OwningMaterialEditor.Pin();
+		if (Editor.IsValid())
+		{
+			for (const TSharedPtr<FMLPParamVM>& Sel : SelectedParams)
+			{
+				if (Sel.IsValid() && Sel->SourceExpression.IsValid())
+				{
+					Editor->AddToSelection(Sel->SourceExpression.Get());
+				}
+			}
+		}
+	}
 }
 
 void SMaterialLayoutProPanel::JumpToParam(TSharedPtr<FMLPParamVM> Param)
