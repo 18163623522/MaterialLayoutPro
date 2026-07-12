@@ -116,6 +116,12 @@ public:
 private:
 	/** Find which group title bar (if any) contains the given absolute screen position. */
 	FName FindGroupAtPosition(const FVector2D& AbsolutePos) const;
+	/**
+	 * Row-level hit test: resolve the group the cursor is over (via FindGroupAtPosition) and the
+	 * insertion index WITHIN that group — i.e. how many of the group's rows are above the cursor.
+	 * OutInsertInGroup ranges [0, group.ParamCount]; OutGroup is NAME_None when over no group.
+	 */
+	void ComputeDropTarget(const FVector2D& AbsolutePos, FName& OutGroup, int32& OutInsertInGroup) const;
 	/** Called by SInstanceDropArea when a param is dropped at an absolute position. */
 	void HandleParamDropped(const FVector2D& AbsolutePos, TSharedPtr<FMLPInstanceParamVM> Param);
 	/** Called by SInstanceDropArea while a param is dragged — updates DragOverGroup highlight. */
@@ -141,6 +147,13 @@ private:
 	FReply OnRefreshClicked();
 	/** Drag a param to a different group (writes AssetUserData only, not the parent material). */
 	void OnParamMovedToGroup(TSharedPtr<FMLPInstanceParamVM> Param, FName NewGroup);
+	/**
+	 * Insert a param at an exact position (handles both same-group reorder and cross-group move).
+	 * InsertIdx is an index INTO the target group's current param ordering (after removing the
+	 * dragged param if it was already in that group). Writes both SetParamGroup (if cross-group)
+	 * and renumbers ParamSort for the target group to match the new order.
+	 */
+	void OnParamInsertedAt(TSharedPtr<FMLPInstanceParamVM> Param, FName TargetGroup, int32 InsertIdx);
 	/** Set the group-order sort priority for a group (reorders groups). */
 	void OnGroupSortChanged(FName GroupName, int32 NewPriority);
 	/** Rename a group (AssetUserData only — updates all params mapped to OldName). */
@@ -182,8 +195,15 @@ private:
 	 *  group name. Used by OnDrop to hit-test which group the mouse is over — a reliable
 	 *  fallback because SCompoundWidget drop targets aren't always registered in the HittestGrid. */
 	TArray<TPair<FName, TWeakPtr<SWidget>>> GroupTitleWidgets;
+	/** Per-row outermost widget (SHorizontalBox), one per parameter row, paired with its owning
+	 *  group name, IN RENDER ORDER (group order + in-group ParamSort order). Used by
+	 *  ComputeDropTarget to find the exact insertion index and to position the blue-line drop
+	 *  indicator. Reset each rebuild. */
+	TArray<TPair<FName, TWeakPtr<SWidget>>> ParamRowWidgets;
 	/** Name of the group the drag is currently hovering over (for highlight), or NAME_None. */
 	FName DragOverGroup;
+	/** Insertion index WITHIN DragOverGroup (0..ParamCount) the drag is hovering at, or INDEX_NONE. */
+	int32 DragOverInsertIndex = INDEX_NONE;
 	/** Tick geometry of the panel (for converting pointer coords in OnDrop). */
 	FGeometry PanelGeometry;
 	};

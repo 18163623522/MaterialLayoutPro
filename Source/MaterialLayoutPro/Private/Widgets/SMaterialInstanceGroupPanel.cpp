@@ -196,19 +196,67 @@ FName SMaterialInstanceGroupPanel::FindGroupAtPosition(const FVector2D& Absolute
 	return Hit;
 }
 
+void SMaterialInstanceGroupPanel::ComputeDropTarget(const FVector2D& AbsolutePos, FName& OutGroup, int32& OutInsertInGroup) const
+{
+	OutGroup = NAME_None;
+	OutInsertInGroup = INDEX_NONE;
+
+	// 1. Which group? (whole-group Y-partition by title bars — already verified to work.)
+	const FName Group = FindGroupAtPosition(AbsolutePos);
+	if (Group.IsNone()) return;
+
+	// 2. Collect THIS group's rows (in render order = ParamSort order) with their geometry.
+	struct FRowEntry { float MidY; };
+	TArray<FRowEntry> Rows;
+	for (const auto& Pair : ParamRowWidgets)
+	{
+		if (Pair.Key != Group) continue;
+		TSharedPtr<SWidget> W = Pair.Value.Pin();
+		if (!W.IsValid()) continue;
+		const FSlateRect R = W->GetCachedGeometry().GetLayoutBoundingRect();
+		Rows.Add(FRowEntry{ (R.Top + R.Bottom) * 0.5f });
+	}
+
+	OutGroup = Group;
+
+	// 3. Insertion index = number of rows whose MIDPOINT is above the cursor. So landing on the
+	//    top half of row N → insert at N (before row N); bottom half of row N → insert at N+1.
+	//    Above the first row's mid → 0; below the last row's mid → Rows.Num() (append).
+	int32 Idx = 0;
+	for (const FRowEntry& E : Rows)
+	{
+		if (AbsolutePos.Y >= E.MidY) ++Idx;
+		else break;
+	}
+	OutInsertInGroup = Idx;
+}
+
 void SMaterialInstanceGroupPanel::HandleParamDropped(const FVector2D& AbsolutePos, TSharedPtr<FMLPInstanceParamVM> Param)
 {
 	DragOverGroup = NAME_None;
-	const FName Target = FindGroupAtPosition(AbsolutePos);
-	if (Target != NAME_None && Param.IsValid())
+	DragOverInsertIndex = INDEX_NONE;
+
+	FName TargetGroup; int32 InsertIdx;
+	ComputeDropTarget(AbsolutePos, TargetGroup, InsertIdx);
+	if (TargetGroup != NAME_None && Param.IsValid() && InsertIdx != INDEX_NONE)
 	{
-		OnParamMovedToGroup(Param, Target);
+		OnParamInsertedAt(Param, TargetGroup, InsertIdx);
 	}
 }
 
 void SMaterialInstanceGroupPanel::HandleDragOverPos(const FVector2D& AbsolutePos)
 {
-	DragOverGroup = FindGroupAtPosition(AbsolutePos);
+	FName Group; int32 InsertIdx;
+	ComputeDropTarget(AbsolutePos, Group, InsertIdx);
+	const FName OldGroup = DragOverGroup;
+	const int32 OldIdx = DragOverInsertIndex;
+	DragOverGroup = Group;
+	DragOverInsertIndex = InsertIdx;
+	// Rebuild to (re)draw the blue-line indicator when the drop slot changes.
+	if (OldGroup != Group || OldIdx != InsertIdx)
+	{
+		RebuildInstanceContent();
+	}
 }
 
 // ============================================================================
@@ -483,6 +531,7 @@ void SMaterialInstanceGroupPanel::RebuildInstanceContent()
 
 	// Clear cached group-title widgets (rebuilt below) and the shared combo options list.
 	GroupTitleWidgets.Reset();
+	ParamRowWidgets.Reset();
 	CachedGroupNames.Reset();
 	for (const auto& G : Groups) CachedGroupNames.Add(MakeShared<FName>(G->Name));
 
@@ -500,6 +549,18 @@ void SMaterialInstanceGroupPanel::RebuildInstanceContent()
 void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> ContentBox)
 {
 	TWeakPtr<SMaterialInstanceGroupPanel, ESPMode::NotThreadSafe> WeakSelf = StaticCastSharedRef<SMaterialInstanceGroupPanel>(AsShared());
+
+	// Builds the 2px blue drop-indicator line shown between rows / at group end during a drag.
+	auto MakeDropIndicator = []() -> TSharedRef<SWidget>
+	{
+		return SNew(SBorder)
+			.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+			.BorderBackgroundColor(FMLPTheme::Accent())
+			.Padding(FMargin(2.f, 0.f))
+			[
+				SNew(SBox).HeightOverride(2.f)
+			];
+	};
 
 	// Reusable editable-text-box style with a dark-theme-friendly background (the default
 	// style is opaque white, making the text invisible on the dark group title bar). Mirrors
@@ -536,6 +597,10 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 
 		const FName GroupName = Group->Name;
 		const int32 SortPrio = Group->SortPriority;
+		// Whether the drag is currently targeting this group (drives both the title-bar
+		// highlight AND the row-level blue-line indicator).
+		const bool bDropTargetHere = (DragOverGroup == GroupName);
+		int32 RowIdx = 0;  // index within this group, used for indicator placement
 
 		// --- Group title bar. Tracked in GroupTitleWidgets so the panel-level OnDrop can
 		// hit-test it (the SCompoundWidget drop-target approach wasn't receiving events).
@@ -746,10 +811,17 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 			// SComboBox holds a raw ptr to its options source, so it must outlive the combo box;
 			// use the panel member CachedGroupNames (refreshed each rebuild in RebuildInstanceContent).
 
+			// Blue-line drop indicator BEFORE this row (insert at this index).
+			if (bDropTargetHere && DragOverInsertIndex == RowIdx)
+			{
+				ContentBox->AddSlot().AutoHeight().Padding(FMargin(2, 0))[ MakeDropIndicator() ];
+			}
+
+			TSharedPtr<SHorizontalBox> RowBox;
 			ContentBox->AddSlot().AutoHeight().Padding(FMargin(2, 1))
 			[
-				SNew(SHorizontalBox)
-				// Drag handle (:: icon — drag to another group's title bar to move the param)
+				SAssignNew(RowBox, SHorizontalBox)
+				// Drag handle (:: icon — drag to insert between any rows or move across groups)
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0, 0, 4, 0))
 				[
 					SNew(SInstanceParamDragSource)
@@ -758,7 +830,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 						SNew(SBox)
 						.WidthOverride(20.f).HeightOverride(20.f)
 						.HAlign(HAlign_Center).VAlign(VAlign_Center)
-						.ToolTipText(LOCTEXT("DragHandleTT", "拖拽到组标题栏可移动到此组"))
+							.ToolTipText(LOCTEXT("DragHandleTT", "拖拽到任意位置插入(可跨组)"))
 						[
 							SNew(STextBlock)
 							.Text(FText::FromString(TEXT("::")))
@@ -856,6 +928,19 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 					.Font(FMLPTheme::FontSmall())
 				]
 			];
+
+			// Register this row's outer widget for row-level drop hit-testing + indicator.
+			if (RowBox.IsValid())
+			{
+				ParamRowWidgets.Add(TPair<FName, TWeakPtr<SWidget>>(GroupName, RowBox.ToSharedRef()));
+			}
+			++RowIdx;
+		}
+
+		// Blue-line drop indicator at the GROUP END (insert at index == ParamCount: append).
+		if (bDropTargetHere && DragOverInsertIndex == RowIdx)
+		{
+			ContentBox->AddSlot().AutoHeight().Padding(FMargin(2, 0))[ MakeDropIndicator() ];
 		}
 
 		// Empty group hint — show when a group has no params (e.g. just created).
@@ -893,6 +978,59 @@ void SMaterialInstanceGroupPanel::OnParamMovedToGroup(TSharedPtr<FMLPInstancePar
 	GD->Save(TargetInstance.Get());
 
 	Param->EffectiveGroup = NewGroup;
+	PullFromInstance();
+	RebuildInstanceContent();
+}
+
+void SMaterialInstanceGroupPanel::OnParamInsertedAt(TSharedPtr<FMLPInstanceParamVM> Param, FName TargetGroup, int32 InsertIdx)
+{
+	if (!Param.IsValid() || !TargetInstance.IsValid() || !GroupData.IsValid()) return;
+	if (TargetGroup.IsNone()) return;
+
+	const FName DragName = Param->Name;
+	UMaterialInstanceGroupData* GD = GroupData.Get();
+
+	// The target group's parameters IN CURRENT DISPLAY ORDER (Groups was built by PullFromInstance
+	// sorted by ParamSort). This is the ordering the user sees, so InsertIdx is relative to it.
+	TArray<FName> OrderInGroup;
+	for (const auto& G : Groups)
+	{
+		if (!G.IsValid() || G->Name != TargetGroup) continue;
+		for (const auto& P : G->Parameters)
+		{
+			if (P.IsValid()) OrderInGroup.Add(P->Name);
+		}
+		break;
+	}
+
+	// If the dragged param is ALREADY in this group, remove it first and adjust InsertIdx so the
+	// index stays semantically correct (an index after the old position shifts down by one).
+	const int32 ExistingIdx = OrderInGroup.RemoveSingle(DragName);
+	const bool bWasInGroup = (ExistingIdx != INDEX_NONE);
+	if (bWasInGroup && InsertIdx > ExistingIdx)
+	{
+		--InsertIdx;
+	}
+
+	// Clamp + insert.
+	InsertIdx = FMath::Clamp(InsertIdx, 0, OrderInGroup.Num());
+	OrderInGroup.Insert(DragName, InsertIdx);
+
+	// If moving across groups, update the param's group mapping.
+	if (Param->EffectiveGroup != TargetGroup)
+	{
+		GD->SetParamGroup(DragName, TargetGroup);
+		Param->EffectiveGroup = TargetGroup;
+	}
+
+	// Renumber ParamSort for this group so the new order is contiguous (0,1,2,...). This is what
+	// PullFromInstance's sort reads next rebuild.
+	for (int32 i = 0; i < OrderInGroup.Num(); ++i)
+	{
+		GD->SetParamSort(OrderInGroup[i], i);
+	}
+
+	GD->Save(TargetInstance.Get());
 	PullFromInstance();
 	RebuildInstanceContent();
 }
