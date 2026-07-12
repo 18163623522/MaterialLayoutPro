@@ -161,20 +161,39 @@ void SMaterialInstanceGroupPanel::Tick(const FGeometry& AllottedGeometry, double
 
 FName SMaterialInstanceGroupPanel::FindGroupAtPosition(const FVector2D& AbsolutePos) const
 {
-	// Hit-test the cached group title-bar widgets by their absolute geometry.
+	// Each group's drop zone spans from its title bar DOWN to the NEXT group's title bar, so
+	// dropping anywhere within a group (its title bar, parameter rows, or empty area) targets
+	// that group. The previous version only matched the thin title-bar rectangle, so dropping
+	// on a parameter row or the group's body silently did nothing — the drag "appeared broken"
+	// even though the drop event itself was being delivered correctly.
+	//
+	// Title-bar absolute rects are recomputed every Tick (they account for scroll offset), so
+	// the Y-partition stays correct while scrolling mid-drag.
+	if (GroupTitleWidgets.Num() == 0) return NAME_None;
+
+	struct FEntry { float TopY; FName Name; };
+	TArray<FEntry> Entries;
+	Entries.Reserve(GroupTitleWidgets.Num());
 	for (const auto& Pair : GroupTitleWidgets)
 	{
 		TSharedPtr<SWidget> W = Pair.Value.Pin();
 		if (!W.IsValid()) continue;
-		const FGeometry& G = W->GetCachedGeometry();
-		const FSlateRect Rect = G.GetLayoutBoundingRect();
-		if (AbsolutePos.X >= Rect.Left && AbsolutePos.X <= Rect.Right &&
-			AbsolutePos.Y >= Rect.Top && AbsolutePos.Y <= Rect.Bottom)
-		{
-			return Pair.Key;
-		}
+		Entries.Add(FEntry{ W->GetCachedGeometry().GetLayoutBoundingRect().Top, Pair.Key });
 	}
-	return NAME_None;
+	if (Entries.Num() == 0) return NAME_None;
+	Entries.Sort([](const FEntry& A, const FEntry& B) { return A.TopY < B.TopY; });
+
+	// Cursor above the FIRST title bar (toolbar) = no target (lets the user drop there to cancel).
+	if (AbsolutePos.Y < Entries[0].TopY) return NAME_None;
+
+	// The owning group is the last title bar at or above the cursor Y.
+	FName Hit = NAME_None;
+	for (const FEntry& E : Entries)
+	{
+		if (AbsolutePos.Y >= E.TopY) Hit = E.Name;
+		else break;
+	}
+	return Hit;
 }
 
 void SMaterialInstanceGroupPanel::HandleParamDropped(const FVector2D& AbsolutePos, TSharedPtr<FMLPInstanceParamVM> Param)
@@ -790,10 +809,12 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 					SNew(SComboBox<TSharedPtr<FName>>)
 					.OptionsSource(&CachedGroupNames)
 					.OnGenerateWidget_Lambda([](TSharedPtr<FName> Item) -> TSharedRef<SWidget> {
+						// Combo popup background follows the editor theme (dark on UE4.26), so the
+						// item text must be LIGHT — black text was invisible against the dark popup.
 						return SNew(STextBlock)
 							.Text(Item.IsValid() ? FText::FromName(*Item) : FText::GetEmpty())
 							.Font(FMLPTheme::FontSmall())
-							.ColorAndOpacity(FLinearColor::Black);
+							.ColorAndOpacity(FMLPTheme::Foreground());
 					})
 					.OnSelectionChanged_Lambda([WeakSelf, WeakVM](TSharedPtr<FName> NewItem, ESelectInfo::Type) {
 						auto Self = WeakSelf.Pin(); auto V = WeakVM.Pin();
