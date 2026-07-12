@@ -155,6 +155,8 @@ private:
 
 	// --- Handlers ---
 	FReply OnRefreshClicked();
+	/** Build the right-click context menu for a parameter row (copy name / toggle override). */
+	TSharedRef<SWidget> BuildRowContextMenu(TSharedPtr<FMLPInstanceParamVM> Param);
 	/** Drag a param to a different group (writes AssetUserData only, not the parent material). */
 	void OnParamMovedToGroup(TSharedPtr<FMLPInstanceParamVM> Param, FName NewGroup);
 	/**

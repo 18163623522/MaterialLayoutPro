@@ -20,6 +20,9 @@
 #include "ScopedTransaction.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Framework/Application/SlateApplication.h"
+#include "HAL/PlatformApplicationMisc.h"
+#include "Framework/Commands/UIAction.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "ContentBrowserModule.h"
 #include "IContentBrowserSingleton.h"
 #include "Widgets/Layout/SBorder.h"
@@ -916,7 +919,28 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 			TSharedPtr<SHorizontalBox> RowBox;
 			ContentBox->AddSlot().AutoHeight().Padding(FMargin(2, 1))
 			[
-				SAssignNew(RowBox, SHorizontalBox)
+				SNew(SBorder)
+				.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+				.BorderBackgroundColor(FLinearColor::Transparent)
+				.Padding(FMargin(0.f))
+				// Right-click → context menu (copy name / toggle override). Left clicks pass through
+				// to the row's children (checkboxes, value editors, etc.) unimpeded.
+				.OnMouseButtonDown_Lambda([WeakSelf, P](const FGeometry&, const FPointerEvent& MouseEvent) -> FReply
+				{
+					if (MouseEvent.GetEffectingButton() != EKeys::RightMouseButton) return FReply::Unhandled();
+					auto Self = WeakSelf.Pin();
+					if (!Self.IsValid() || !P.IsValid()) return FReply::Unhandled();
+					TSharedRef<SWidget> Menu = Self->BuildRowContextMenu(P);
+					FSlateApplication::Get().PushMenu(
+						Self->AsShared(),
+						FWidgetPath(),
+						Menu,
+						FSlateApplication::Get().GetCursorPos(),
+						FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu));
+					return FReply::Handled();
+				})
+				[
+					SAssignNew(RowBox, SHorizontalBox)
 				// Drag handle (:: icon — drag to insert between any rows or move across groups)
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0, 0, 4, 0))
 				[
@@ -1023,7 +1047,8 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 					.ColorAndOpacity(FMLPTheme::Accent())
 					.Font(FMLPTheme::FontSmall())
 				]
-			];
+			]  // end SBorder (row wrapper)
+			];  // end AddSlot
 
 			// Register this row's outer widget for row-level drop hit-testing + indicator.
 			if (RowBox.IsValid())
@@ -1192,6 +1217,47 @@ FReply SMaterialInstanceGroupPanel::OnAddGroupClicked()
 	PullFromInstance();
 	RebuildInstanceContent();
 	return FReply::Handled();
+}
+
+TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildRowContextMenu(TSharedPtr<FMLPInstanceParamVM> Param)
+{
+	// Capture the param weakly so the menu actions don't keep it alive past the panel.
+	TWeakPtr<FMLPInstanceParamVM> WeakParam = Param;
+	TWeakPtr<SMaterialInstanceGroupPanel, ESPMode::NotThreadSafe> WeakSelf = StaticCastSharedRef<SMaterialInstanceGroupPanel>(AsShared());
+
+	FMenuBuilder MenuBuilder(true, nullptr);
+
+	// Copy parameter name to the OS clipboard.
+	MenuBuilder.AddMenuEntry(
+		LOCTEXT("CtxCopyName", "复制参数名"),
+		LOCTEXT("CtxCopyNameTT", "将此参数名复制到剪贴板"),
+		FSlateIcon(),
+		FUIAction(FExecuteAction::CreateLambda([WeakParam]()
+		{
+			auto P = WeakParam.Pin();
+			if (P.IsValid())
+			{
+				FPlatformApplicationMisc::ClipboardCopy(*P->Name.ToString());
+			}
+		}))
+	);
+
+	MenuBuilder.AddMenuSeparator();
+
+	// Toggle / reset override. Label adapts to the current state.
+	const bool bOverridden = Param.IsValid() && Param->bOverridden;
+	MenuBuilder.AddMenuEntry(
+		bOverridden ? LOCTEXT("CtxResetOverride", "重置覆盖(恢复父材质值)") : LOCTEXT("CtxEnableOverride", "启用覆盖"),
+		bOverridden ? LOCTEXT("CtxResetOverrideTT", "移除此实例对该参数的覆盖,回退到父材质默认值") : LOCTEXT("CtxEnableOverrideTT", "用当前值覆盖父材质默认值"),
+		FSlateIcon(),
+		FUIAction(FExecuteAction::CreateLambda([WeakSelf, WeakParam]()
+		{
+			auto Self = WeakSelf.Pin(); auto P = WeakParam.Pin();
+			if (Self.IsValid() && P.IsValid()) Self->OnToggleOverride(P);
+		}))
+	);
+
+	return MenuBuilder.MakeWidget();
 }
 
 void SMaterialInstanceGroupPanel::OnToggleOverride(TSharedPtr<FMLPInstanceParamVM> Param)
