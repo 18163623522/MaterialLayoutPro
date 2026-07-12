@@ -147,6 +147,11 @@ private:
 	bool PassesSearchFilter(const FName& ParamName) const;
 	/** Called when the search box text changes — rebuilds content to re-apply the filter. */
 	void OnSearchChanged(const FText& NewText);
+	/** Toggle a group's collapsed state and rebuild. */
+	void OnToggleGroupCollapsed(FName GroupName);
+	/** Whether a group is currently collapsed. A search forces groups with matches to expand
+	 *  so matching rows are visible. */
+	bool IsGroupCollapsed(FName GroupName) const;
 
 	// --- Handlers ---
 	FReply OnRefreshClicked();
@@ -192,6 +197,8 @@ private:
 	TSharedPtr<SScrollBox> ParamScroll;
 	/** Current search-box text (case-insensitive substring filter on param names). */
 	FText SearchText;
+	/** Names of groups the user has collapsed (session-only view state, not persisted). */
+	TSet<FName> CollapsedGroups;
 	TOptional<double> LastPollTime;
 	/** Persisted list of group names shared by all row SComboBoxes (SComboBox holds a raw
 	 *  ptr to its options source, so it must outlive the combo box — keep it as a member).

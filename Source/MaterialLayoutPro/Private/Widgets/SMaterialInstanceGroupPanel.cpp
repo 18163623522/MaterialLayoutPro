@@ -579,6 +579,30 @@ void SMaterialInstanceGroupPanel::OnSearchChanged(const FText& NewText)
 	RebuildInstanceContent();
 }
 
+void SMaterialInstanceGroupPanel::OnToggleGroupCollapsed(FName GroupName)
+{
+	if (CollapsedGroups.Contains(GroupName))
+	{
+		CollapsedGroups.Remove(GroupName);
+	}
+	else
+	{
+		CollapsedGroups.Add(GroupName);
+	}
+	// Collapsed groups can't be a drag target (their rows are hidden).
+	DragOverGroup = NAME_None;
+	DragOverInsertIndex = INDEX_NONE;
+	RebuildInstanceContent();
+}
+
+bool SMaterialInstanceGroupPanel::IsGroupCollapsed(FName GroupName) const
+{
+	// A search forces groups to expand so matching rows are visible — collapsing during a
+	// search would hide exactly the params the user is looking for.
+	if (!SearchText.ToString().TrimStartAndEnd().IsEmpty()) return false;
+	return CollapsedGroups.Contains(GroupName);
+}
+
 void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> ContentBox)
 {
 	TWeakPtr<SMaterialInstanceGroupPanel, ESPMode::NotThreadSafe> WeakSelf = StaticCastSharedRef<SMaterialInstanceGroupPanel>(AsShared());
@@ -646,6 +670,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 		// Whether the drag is currently targeting this group (drives both the title-bar
 		// highlight AND the row-level blue-line indicator).
 		const bool bDropTargetHere = (DragOverGroup == GroupName);
+		const bool bCollapsed = IsGroupCollapsed(GroupName);
 		int32 RowIdx = 0;  // index within this group, used for indicator placement
 
 		// --- Group title bar. Tracked in GroupTitleWidgets so the panel-level OnDrop can
@@ -664,6 +689,25 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 			.Padding(FMargin(4, 3, 4, 3))
 				[
 					SNew(SHorizontalBox)
+				// Collapse/expand arrow (▶ collapsed / ▼ expanded). Separate button so it doesn't
+				// conflict with the editable group name or the sort-priority numeric box.
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0, 0, 4, 0))
+				[
+					SNew(SButton)
+					.ButtonStyle(MLP_STYLE::Get(), "FlatButton")
+					.ContentPadding(FMargin(2, 0))
+					.Text_Lambda([WeakSelf, GroupName]() -> FText {
+						auto Self = WeakSelf.Pin();
+						return (Self.IsValid() && Self->IsGroupCollapsed(GroupName))
+							? FText::FromString(TEXT("▶"))
+							: FText::FromString(TEXT("▼"));
+					})
+					.ToolTipText(LOCTEXT("CollapseTT", "折叠/展开此分组"))
+					.OnClicked_Lambda([WeakSelf, GroupName]() -> FReply {
+						if (auto Self = WeakSelf.Pin()) Self->OnToggleGroupCollapsed(GroupName);
+						return FReply::Handled();
+					})
+				]
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 				[
 					SNew(SBox).WidthOverride(36.f)
@@ -718,8 +762,10 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 		}
 
 		// --- Parameter rows for this group ---
+		// Collapsed groups render only their title bar (rows + empty hint + drop indicator hidden).
 		for (const auto& P : Group->Parameters)
 		{
+			if (bCollapsed) break;  // collapsed: skip all rows
 			// Skip params that don't match the search filter (group-level pre-check above already
 			// hides groups with zero matches; this hides non-matching rows within a partial match).
 			if (!P.IsValid() || !PassesSearchFilter(P->Name)) continue;
@@ -988,13 +1034,13 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 		}
 
 		// Blue-line drop indicator at the GROUP END (insert at index == ParamCount: append).
-		if (bDropTargetHere && DragOverInsertIndex == RowIdx)
+		if (!bCollapsed && bDropTargetHere && DragOverInsertIndex == RowIdx)
 		{
 			ContentBox->AddSlot().AutoHeight().Padding(FMargin(2, 0))[ MakeDropIndicator() ];
 		}
 
 		// Empty group hint — show when a group has no params (e.g. just created).
-		if (Group->Parameters.Num() == 0)
+		if (!bCollapsed && Group->Parameters.Num() == 0)
 		{
 			ContentBox->AddSlot().AutoHeight().Padding(FMargin(8, 2))
 			[
