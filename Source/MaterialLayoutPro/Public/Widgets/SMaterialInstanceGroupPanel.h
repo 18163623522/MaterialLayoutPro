@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
+#include "Widgets/Layout/SBorder.h"
 
 class UMaterial;
 class UMaterialInstance;
@@ -29,31 +30,33 @@ struct FMLPInstanceParamVM
 };
 
 /**
- * Drop target that is itself an SBorder (a leaf widget that paints → registered in the
- * HittestGrid → reliably receives drag-over/drop events). SCompoundWidget wrappers that don't
- * paint are skipped by the HittestGrid, so they never get OnDragOver. This subclass paints the
- * group title bar background and routes dropped params to a delegate.
+ * Drop area that is an SBorder subclass. Critical: SBorder PAINTS (has a background brush), so
+ * it is registered in Slate's HittestGrid and RELIABLY receives OnDragOver/OnDrop — unlike
+ * SCompoundWidget wrappers that don't paint and are skipped by the HittestGrid. This is the
+ * outermost widget of the panel content; drag-over/drop are handled here and hit-tested against
+ * the panel's group-title geometry (the panel owns FindGroupAtPosition).
  */
-class MATERIALLAYOUTPRO_API SInstanceGroupDropTarget : public SCompoundWidget
+class MATERIALLAYOUTPRO_API SInstanceDropArea : public SBorder
 {
 public:
-	DECLARE_DELEGATE_OneParam(FOnParamDroppedOnGroup, TSharedPtr<FMLPInstanceParamVM>);
+	DECLARE_DELEGATE_TwoParams(FOnParamDropped, const FVector2D& /*AbsolutePos*/, TSharedPtr<FMLPInstanceParamVM> /*Param*/);
+	DECLARE_DELEGATE_OneParam(FOnDragOverPos, const FVector2D& /*AbsolutePos*/);
 
-	SLATE_BEGIN_ARGS(SInstanceGroupDropTarget) {}
-		SLATE_EVENT(FOnParamDroppedOnGroup, OnDropped)
+	SLATE_BEGIN_ARGS(SInstanceDropArea) {}
+		SLATE_EVENT(FOnParamDropped, OnDropped)
+		SLATE_EVENT(FOnDragOverPos, OnDragOverPos)
 		SLATE_DEFAULT_SLOT(FArguments, Content)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
 
-	virtual void OnDragEnter(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
-	virtual void OnDragLeave(const FDragDropEvent& DragDropEvent) override;
 	virtual FReply OnDragOver(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
 	virtual FReply OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
+	virtual void OnDragLeave(const FDragDropEvent& DragDropEvent) override;
 
 private:
-	FOnParamDroppedOnGroup OnDroppedDelegate;
-	bool bIsDragOver = false;
+	FOnParamDropped OnDroppedDelegate;
+	FOnDragOverPos OnDragOverDelegate;
 };
 
 /**
@@ -109,13 +112,14 @@ public:
 
 	void Construct(const FArguments& InArgs);
 	virtual void Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime) override;
-	/** Handle a param dropped anywhere on the panel — hit-test against cached group title geometry. */
-	virtual FReply OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
-	virtual FReply OnDragOver(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
 
 private:
 	/** Find which group title bar (if any) contains the given absolute screen position. */
 	FName FindGroupAtPosition(const FVector2D& AbsolutePos) const;
+	/** Called by SInstanceDropArea when a param is dropped at an absolute position. */
+	void HandleParamDropped(const FVector2D& AbsolutePos, TSharedPtr<FMLPInstanceParamVM> Param);
+	/** Called by SInstanceDropArea while a param is dragged — updates DragOverGroup highlight. */
+	void HandleDragOverPos(const FVector2D& AbsolutePos);
 	// --- Editor binding / resolution ---
 	void BindToInstanceEditor(TWeakPtr<IMaterialEditor> InEditor);
 	void ResolveTarget();

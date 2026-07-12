@@ -48,64 +48,6 @@
 #define LOCTEXT_NAMESPACE "SMaterialInstanceGroupPanel"
 
 // ============================================================================
-// SInstanceGroupDropTarget
-// ============================================================================
-
-void SInstanceGroupDropTarget::Construct(const FArguments& InArgs)
-{
-	OnDroppedDelegate = InArgs._OnDropped;
-
-	// Put the content directly in ChildSlot (no intermediate SBorder). The highlight is applied
-	// via a content-wrapping border whose color reads bIsDragOver. Keeping the content as a
-	// direct child (rather than nested under an SBorder) ensures this SCompoundWidget stays
-	// the hit-target for drag-over events.
-	ChildSlot
-	[
-		InArgs._Content.Widget
-	];
-}
-
-void SInstanceGroupDropTarget::OnDragEnter(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
-{
-	TSharedPtr<FMLPInstanceParamDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPInstanceParamDragDrop>();
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] DropTarget OnDragEnter op=%s"), DragOp.IsValid() ? TEXT("param") : TEXT("other/null"));
-	if (DragOp.IsValid() && DragOp->IsValid())
-	{
-		bIsDragOver = true;
-	}
-}
-
-void SInstanceGroupDropTarget::OnDragLeave(const FDragDropEvent& DragDropEvent)
-{
-	bIsDragOver = false;
-}
-
-FReply SInstanceGroupDropTarget::OnDragOver(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
-{
-	TSharedPtr<FMLPInstanceParamDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPInstanceParamDragDrop>();
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] DropTarget OnDragOver op=%s"), DragOp.IsValid() ? TEXT("param") : TEXT("other/null"));
-	if (DragOp.IsValid() && DragOp->IsValid())
-	{
-		bIsDragOver = true;
-		return FReply::Handled();
-	}
-	return FReply::Unhandled();
-}
-
-FReply SInstanceGroupDropTarget::OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
-{
-	bIsDragOver = false;
-	TSharedPtr<FMLPInstanceParamDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPInstanceParamDragDrop>();
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] DropTarget OnDrop op=%s"), DragOp.IsValid() ? TEXT("param") : TEXT("other/null"));
-	if (DragOp.IsValid() && DragOp->IsValid())
-	{
-		OnDroppedDelegate.ExecuteIfBound(DragOp->Param);
-		return FReply::Handled();
-	}
-	return FReply::Unhandled();
-}
-
-// ============================================================================
 // SInstanceParamDragSource
 // ============================================================================
 
@@ -120,7 +62,6 @@ void SInstanceParamDragSource::Construct(const FArguments& InArgs)
 
 FReply SInstanceParamDragSource::OnPreviewMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] DragSource OnPreviewMouseButtonDown param=%s"), Param.IsValid() ? *Param->Name.ToString() : TEXT("null"));
 	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
 		return FReply::Handled().DetectDrag(AsShared(), EKeys::LeftMouseButton);
@@ -130,7 +71,6 @@ FReply SInstanceParamDragSource::OnPreviewMouseButtonDown(const FGeometry& MyGeo
 
 FReply SInstanceParamDragSource::OnDragDetected(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[MLP] DragSource OnDragDetected param=%s"), Param.IsValid() ? *Param->Name.ToString() : TEXT("null"));
 	if (MouseEvent.IsMouseButtonDown(EKeys::LeftMouseButton) && Param.IsValid())
 	{
 		TSharedPtr<FMLPInstanceParamDragDrop> DragOp = MakeShared<FMLPInstanceParamDragDrop>(Param);
@@ -221,9 +161,7 @@ void SMaterialInstanceGroupPanel::Tick(const FGeometry& AllottedGeometry, double
 
 FName SMaterialInstanceGroupPanel::FindGroupAtPosition(const FVector2D& AbsolutePos) const
 {
-	// Hit-test the cached group title-bar widgets by their absolute geometry. This is the
-	// reliable drop mechanism: SCompoundWidget sub-widgets aren't always in the HittestGrid,
-	// so we bypass it and compare rectangles directly.
+	// Hit-test the cached group title-bar widgets by their absolute geometry.
 	for (const auto& Pair : GroupTitleWidgets)
 	{
 		TSharedPtr<SWidget> W = Pair.Value.Pin();
@@ -239,36 +177,66 @@ FName SMaterialInstanceGroupPanel::FindGroupAtPosition(const FVector2D& Absolute
 	return NAME_None;
 }
 
-FReply SMaterialInstanceGroupPanel::OnDragOver(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
-{
-	TSharedPtr<FMLPInstanceParamDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPInstanceParamDragDrop>();
-	if (DragOp.IsValid() && DragOp->IsValid())
-	{
-		// Highlight the group under the cursor (refreshes the title-bar color via lambda).
-		const FName Over = FindGroupAtPosition(DragDropEvent.GetScreenSpacePosition());
-		if (Over != DragOverGroup)
-		{
-			DragOverGroup = Over;
-		}
-		return FReply::Handled();
-	}
-	return FReply::Unhandled();
-}
-
-FReply SMaterialInstanceGroupPanel::OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
+void SMaterialInstanceGroupPanel::HandleParamDropped(const FVector2D& AbsolutePos, TSharedPtr<FMLPInstanceParamVM> Param)
 {
 	DragOverGroup = NAME_None;
+	const FName Target = FindGroupAtPosition(AbsolutePos);
+	if (Target != NAME_None && Param.IsValid())
+	{
+		OnParamMovedToGroup(Param, Target);
+	}
+}
+
+void SMaterialInstanceGroupPanel::HandleDragOverPos(const FVector2D& AbsolutePos)
+{
+	DragOverGroup = FindGroupAtPosition(AbsolutePos);
+}
+
+// ============================================================================
+// SInstanceDropArea
+// ============================================================================
+
+void SInstanceDropArea::Construct(const FArguments& InArgs)
+{
+	OnDroppedDelegate = InArgs._OnDropped;
+	OnDragOverDelegate = InArgs._OnDragOverPos;
+
+	// Paint a (fully transparent) background so this SBorder is in the HittestGrid and receives
+	// drag-over/drop. SBorder subclasses are registered as hit-test targets because they paint.
+	SBorder::Construct(SBorder::FArguments()
+		.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+		.BorderBackgroundColor(FLinearColor::Transparent)
+		.Padding(FMargin(0.f))
+		[
+			InArgs._Content.Widget
+		]);
+}
+
+FReply SInstanceDropArea::OnDragOver(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
+{
 	TSharedPtr<FMLPInstanceParamDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPInstanceParamDragDrop>();
 	if (DragOp.IsValid() && DragOp->IsValid())
 	{
-		const FName Target = FindGroupAtPosition(DragDropEvent.GetScreenSpacePosition());
-		if (Target != NAME_None)
-		{
-			OnParamMovedToGroup(DragOp->Param, Target);
-			return FReply::Handled();
-		}
+		OnDragOverDelegate.ExecuteIfBound(DragDropEvent.GetScreenSpacePosition());
+		return FReply::Handled();
 	}
-	return FReply::Unhandled();
+	return SBorder::OnDragOver(MyGeometry, DragDropEvent);
+}
+
+FReply SInstanceDropArea::OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent)
+{
+	TSharedPtr<FMLPInstanceParamDragDrop> DragOp = DragDropEvent.GetOperationAs<FMLPInstanceParamDragDrop>();
+	if (DragOp.IsValid() && DragOp->IsValid())
+	{
+		OnDroppedDelegate.ExecuteIfBound(DragDropEvent.GetScreenSpacePosition(), DragOp->Param);
+		return FReply::Handled();
+	}
+	return SBorder::OnDrop(MyGeometry, DragDropEvent);
+}
+
+void SInstanceDropArea::OnDragLeave(const FDragDropEvent& DragDropEvent)
+{
+	SBorder::OnDragLeave(DragDropEvent);
 }
 
 // ============================================================================
@@ -435,20 +403,27 @@ TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildInitialContent()
 
 	PullFromInstance();
 
-	TSharedPtr<SVerticalBox> Root = SNew(SVerticalBox);
-	ContentContainer = Root;
+	TSharedPtr<SVerticalBox> Inner = SNew(SVerticalBox);
+	ContentContainer = Inner;
 
 	// Toolbar + status persist; group list is rebuilt.
-	Root->AddSlot().AutoHeight().Padding(FMargin(2))[ BuildToolbar() ];
-	Root->AddSlot().FillHeight(1.0f)
+	Inner->AddSlot().AutoHeight().Padding(FMargin(2))[ BuildToolbar() ];
+	Inner->AddSlot().FillHeight(1.0f)
 	[
 		SAssignNew(ParamScroll, SScrollBox)
 	];
-	Root->AddSlot().AutoHeight().Padding(FMargin(2))[ BuildStatusBar() ];
+	Inner->AddSlot().AutoHeight().Padding(FMargin(2))[ BuildStatusBar() ];
 
 	RebuildInstanceContent();
 
-	return Root.ToSharedRef();
+	// Wrap everything in SInstanceDropArea (an SBorder subclass that paints → in HittestGrid →
+	// reliably receives drag-over/drop). It delegates to the panel's geometry hit-test.
+	return SNew(SInstanceDropArea)
+		.OnDropped(SInstanceDropArea::FOnParamDropped::CreateSP(SharedThis(this), &SMaterialInstanceGroupPanel::HandleParamDropped))
+		.OnDragOverPos(SInstanceDropArea::FOnDragOverPos::CreateSP(SharedThis(this), &SMaterialInstanceGroupPanel::HandleDragOverPos))
+		[
+			Inner.ToSharedRef()
+		];
 }
 
 TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildToolbar()
