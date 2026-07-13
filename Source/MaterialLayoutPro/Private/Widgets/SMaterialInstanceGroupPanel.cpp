@@ -541,13 +541,19 @@ TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildToolbar()
 			.Text(LOCTEXT("ExpandAll", "全展开")).ToolTipText(LOCTEXT("ExpandAllTT", "展开所有分组"))
 			.OnClicked(this, &SMaterialInstanceGroupPanel::OnExpandAllGroupsClicked)
 		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("AG", "新建分组")).ToolTipText(LOCTEXT("AGT", "新建一个空分组(可在参数行的组下拉里把参数移过来)"))
+			.OnClicked(this, &SMaterialInstanceGroupPanel::OnAddGroupClicked)
+		]
 		// "更多 ▾" - less-frequently-used actions grouped in a dropdown to keep the toolbar narrow.
 		+ SHorizontalBox::Slot().AutoWidth()
 		[
 			SNew(SComboButton)
 			.ButtonStyle(MLP_STYLE::Get(), "FlatButton")
 			.ContentPadding(FMLPTheme::PadBtn())
-			.ToolTipText(LOCTEXT("MoreTT", "定位资产、新建分组、覆盖管理等更多操作"))
+			.ToolTipText(LOCTEXT("MoreTT", "定位资产、覆盖管理等更多操作"))
 			.OnGetMenuContent(this, &SMaterialInstanceGroupPanel::BuildMoreMenu)
 			.ButtonContent()
 			[
@@ -560,11 +566,9 @@ TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildMoreMenu()
 {
 	FMenuBuilder Menu(true, nullptr);
 
-	// --- 资产 / 分组 ---
+	// --- 资产 ---
 	Menu.AddMenuEntry(LOCTEXT("Locate", "定位资产"), LOCTEXT("LocateTT", "在内容浏览器中选中并定位此材质实例"), FSlateIcon(),
 		FExecuteAction::CreateLambda([this]() { OnLocateAssetClicked(); }));
-	Menu.AddMenuEntry(LOCTEXT("AG", "新建分组"), LOCTEXT("AGT", "新建一个空分组(可在参数行的组下拉里把参数移过来)"), FSlateIcon(),
-		FExecuteAction::CreateLambda([this]() { OnAddGroupClicked(); }));
 
 	Menu.AddMenuSeparator();
 
