@@ -531,6 +531,18 @@ TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildToolbar()
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("R", "刷新")).ToolTipText(LOCTEXT("RT", "重新扫描参数"))
 			.OnClicked(this, &SMaterialInstanceGroupPanel::OnRefreshClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("CollapseAll", "全折叠")).ToolTipText(LOCTEXT("CollapseAllTT", "折叠所有分组"))
+			.OnClicked(this, &SMaterialInstanceGroupPanel::OnCollapseAllGroupsClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("ExpandAll", "全展开")).ToolTipText(LOCTEXT("ExpandAllTT", "展开所有分组"))
+			.OnClicked(this, &SMaterialInstanceGroupPanel::OnExpandAllGroupsClicked)
 		];
 }
 
@@ -604,6 +616,27 @@ bool SMaterialInstanceGroupPanel::IsGroupCollapsed(FName GroupName) const
 	// search would hide exactly the params the user is looking for.
 	if (!SearchText.ToString().TrimStartAndEnd().IsEmpty()) return false;
 	return CollapsedGroups.Contains(GroupName);
+}
+
+FReply SMaterialInstanceGroupPanel::OnCollapseAllGroupsClicked()
+{
+	CollapsedGroups.Reset();
+	for (const auto& G : Groups)
+	{
+		if (G.IsValid()) CollapsedGroups.Add(G->Name);
+	}
+	DragOverGroup = NAME_None;
+	DragOverInsertIndex = INDEX_NONE;
+	RebuildInstanceContent();
+	return FReply::Handled();
+}
+
+FReply SMaterialInstanceGroupPanel::OnExpandAllGroupsClicked()
+{
+	if (CollapsedGroups.Num() == 0) return FReply::Handled();
+	CollapsedGroups.Reset();
+	RebuildInstanceContent();
+	return FReply::Handled();
 }
 
 void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> ContentBox)

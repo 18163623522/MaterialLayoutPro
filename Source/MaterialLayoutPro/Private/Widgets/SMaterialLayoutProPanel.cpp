@@ -721,6 +721,28 @@ bool SMaterialLayoutProPanel::IsGroupCollapsed(FName GroupName) const
 	return CollapsedGroups.Contains(GroupName);
 }
 
+FReply SMaterialLayoutProPanel::OnCollapseAllGroupsClicked()
+{
+	CollapsedGroups.Reset();
+	if (Session.IsValid())
+	{
+		for (const TSharedPtr<FMLPGroupVM>& G : Session->Groups)
+		{
+			if (G.IsValid()) CollapsedGroups.Add(G->Name);
+		}
+	}
+	RebuildTree();
+	return FReply::Handled();
+}
+
+FReply SMaterialLayoutProPanel::OnExpandAllGroupsClicked()
+{
+	if (CollapsedGroups.Num() == 0) return FReply::Handled();
+	CollapsedGroups.Reset();
+	RebuildTree();
+	return FReply::Handled();
+}
+
 // ============================================================================
 // Data refresh
 // ============================================================================
@@ -818,6 +840,16 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 		[
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("R","刷新")).ToolTipText(LOCTEXT("RT","重新扫描参数")).OnClicked(this,&SMaterialLayoutProPanel::OnRefreshClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("CollapseAll","全折叠")).ToolTipText(LOCTEXT("CollapseAllTT","折叠所有分组")).OnClicked(this,&SMaterialLayoutProPanel::OnCollapseAllGroupsClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("ExpandAll","全展开")).ToolTipText(LOCTEXT("ExpandAllTT","展开所有分组")).OnClicked(this,&SMaterialLayoutProPanel::OnExpandAllGroupsClicked)
 		]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		+ SHorizontalBox::Slot().AutoWidth()

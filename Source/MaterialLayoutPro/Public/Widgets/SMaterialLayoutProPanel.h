@@ -66,6 +66,8 @@ private:
 	// --- Collapse/expand ---
 	void OnToggleGroupCollapsed(FName GroupName);
 	bool IsGroupCollapsed(FName GroupName) const;
+	FReply OnCollapseAllGroupsClicked();
+	FReply OnExpandAllGroupsClicked();
 
 	// --- Status ---
 	FText GetTargetMaterialName() const;

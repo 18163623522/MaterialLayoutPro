@@ -152,6 +152,10 @@ private:
 	/** Whether a group is currently collapsed. A search forces groups with matches to expand
 	 *  so matching rows are visible. */
 	bool IsGroupCollapsed(FName GroupName) const;
+	/** Collapse every group. */
+	FReply OnCollapseAllGroupsClicked();
+	/** Expand every group (clears the collapsed set). */
+	FReply OnExpandAllGroupsClicked();
 
 	// --- Handlers ---
 	FReply OnRefreshClicked();
