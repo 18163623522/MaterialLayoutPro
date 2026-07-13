@@ -178,6 +178,9 @@ private:
 	void OnGroupRenamed(FName OldName, const FText& NewName, ETextCommit::Type CommitType);
 	/** Add a new empty group to the custom group order (AssetUserData only). */
 	FReply OnAddGroupClicked();
+	/** Clear every override on the instance (scalar/vector/texture/static-switch), reverting all
+	 *  params to the parent material's defaults. Asks for confirmation first. */
+	FReply OnResetAllOverridesClicked();
 
 	// --- Override value handlers (write straight to the MI's typed value arrays) ---
 	void OnToggleOverride(TSharedPtr<FMLPInstanceParamVM> Param);

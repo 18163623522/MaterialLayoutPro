@@ -21,6 +21,7 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Framework/Application/SlateApplication.h"
 #include "HAL/PlatformApplicationMisc.h"
+#include "Misc/MessageDialog.h"
 #include "Framework/Commands/UIAction.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "ContentBrowserModule.h"
@@ -544,6 +545,12 @@ TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildToolbar()
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("ExpandAll", "全展开")).ToolTipText(LOCTEXT("ExpandAllTT", "展开所有分组"))
 			.OnClicked(this, &SMaterialInstanceGroupPanel::OnExpandAllGroupsClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("ResetAll", "重置全部覆盖")).ToolTipText(LOCTEXT("ResetAllTT", "清除所有参数覆盖,回退到父材质默认值"))
+			.OnClicked(this, &SMaterialInstanceGroupPanel::OnResetAllOverridesClicked)
 		];
 }
 
@@ -1264,6 +1271,55 @@ FReply SMaterialInstanceGroupPanel::OnAddGroupClicked()
 	GroupData.Get()->SetGroupOrder(Order);
 	GroupData.Get()->Save(TargetInstance.Get());
 
+	PullFromInstance();
+	RebuildInstanceContent();
+	return FReply::Handled();
+}
+
+FReply SMaterialInstanceGroupPanel::OnResetAllOverridesClicked()
+{
+	if (!TargetInstance.IsValid()) return FReply::Handled();
+
+	// Count how many overrides exist, for the confirmation prompt + early-out.
+	int32 OverrideCount = 0;
+	for (const auto& P : AllParams)
+	{
+		if (P.IsValid() && P->bOverridden) ++OverrideCount;
+	}
+	if (OverrideCount == 0) return FReply::Handled();  // nothing to do
+
+	// Confirm — this is destructive (reverts all instance overrides to parent defaults).
+	const FText ConfirmMsg = FText::Format(
+		LOCTEXT("ResetAllConf", "确定要清除全部 {0} 个参数覆盖吗?\n所有覆盖值将回退到父材质默认值,此操作可撤销。"),
+		FText::AsNumber(OverrideCount));
+	if (FMessageDialog::Open(EAppMsgType::YesNo, ConfirmMsg) != EAppReturnType::Yes)
+	{
+		return FReply::Handled();
+	}
+
+	UMaterialInstance* MI = TargetInstance.Get();
+	const FScopedTransaction T(FText::FromString(TEXT("重置全部覆盖")));
+	MI->Modify();
+
+	// Clear every typed override array.
+	MI->ScalarParameterValues.Reset();
+	MI->VectorParameterValues.Reset();
+	MI->TextureParameterValues.Reset();
+
+	// Static switches live in a parameter set — rebuild it without this instance's overrides.
+	FStaticParameterSet ParamSet;
+	MI->GetStaticParameterValues(ParamSet);
+	ParamSet.StaticSwitchParameters.Reset();
+	MI->UpdateStaticPermutation(ParamSet);
+
+	// Refresh the VMs so the UI reflects the cleared state.
+	for (const auto& P : AllParams)
+	{
+		if (P.IsValid()) P->bOverridden = false;
+	}
+
+	MI->PostEditChange();
+	MI->MarkPackageDirty();
 	PullFromInstance();
 	RebuildInstanceContent();
 	return FReply::Handled();
