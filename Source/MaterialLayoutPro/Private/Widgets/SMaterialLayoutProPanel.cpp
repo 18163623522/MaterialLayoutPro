@@ -5,6 +5,7 @@
 #include "Model/MaterialLayoutViewModel.h"
 #include "Model/MaterialParameterScanner.h"
 #include "Model/MaterialParameterInfo.h"
+#include "Model/MaterialParameterUsageAnalyzer.h"
 #include "Widgets/SMaterialParameterRow.h"
 #include "Widgets/SMaterialCSVImportDialog.h"
 #include "Materials/Material.h"
@@ -15,6 +16,9 @@
 #include "MaterialShared.h"                       // FExpressionInput
 #include "UObject/Field.h"                         // TFieldIterator/FProperty/FStructProperty
 #include "EdGraph/EdGraph.h"
+#if ENGINE_MAJOR_VERSION >= 5
+#include "MaterialGraph/MaterialGraph.h"  // UMaterialGraph (needed for TObjectPtr deref in C++20)
+#endif
 #include "Engine/Texture.h"
 #include "Widgets/SMaterialSortWorkbench.h"
 #include "Widgets/SMaterialParameterEditor.h"
@@ -52,7 +56,6 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "IMaterialEditor.h"
 #include "MaterialEditorModule.h"
-#include "Toolkits/AssetEditorManager.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "MaterialLayoutProSettings.h"
 #include "ISettingsModule.h"
@@ -161,7 +164,8 @@ void SMaterialLayoutProPanel::NotifyMaterialEditorChanged()
 			{
 				if (M->MaterialGraph)
 				{
-					for (UEdGraphNode* Node : M->MaterialGraph->Nodes)
+					UMaterialGraph* Graph = M->MaterialGraph.Get();
+					for (UEdGraphNode* Node : Graph->Nodes)
 					{
 						if (Node) Node->ReconstructNode();
 					}
@@ -686,9 +690,17 @@ void SMaterialLayoutProPanel::ShowUsageLinks(TSharedPtr<FMLPParamVM> Param)
 
 	// --- Upstream: the parameter's own inputs (usually empty for source parameters).
 	TArray<FString> Upstream;
+#if ENGINE_MAJOR_VERSION >= 5
+	// UE5: GetInputs/GetInputsView deprecated; iterate via GetInput until null.
+	for (int32 i = 0; ; ++i)
+	{
+		FExpressionInput* Input = TargetExpr->GetInput(i);
+		if (!Input) break;
+#else
 	const TArray<FExpressionInput*> Inputs = TargetExpr->GetInputs();
 	for (FExpressionInput* Input : Inputs)
 	{
+#endif
 		if (Input && Input->Expression)
 		{
 			FString ClassName = Input->Expression->GetClass()->GetName();
@@ -715,7 +727,7 @@ void SMaterialLayoutProPanel::ShowUsageLinks(TSharedPtr<FMLPParamVM> Param)
 TSharedRef<SWidget> SMaterialLayoutProPanel::BuildRowContextMenu(TSharedPtr<FMLPParamVM> Param)
 {
 	TWeakPtr<FMLPParamVM> WeakParam = Param;
-	TWeakPtr<SMaterialLayoutProPanel, ESPMode::NotThreadSafe> WeakSelf = StaticCastSharedRef<SMaterialLayoutProPanel>(AsShared());
+	TWeakPtr<SMaterialLayoutProPanel, ESPMode::ThreadSafe> WeakSelf = StaticCastSharedRef<SMaterialLayoutProPanel>(AsShared());
 
 	FMenuBuilder MenuBuilder(true, nullptr);
 

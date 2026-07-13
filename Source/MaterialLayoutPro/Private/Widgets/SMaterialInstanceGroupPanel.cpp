@@ -676,7 +676,7 @@ FReply SMaterialInstanceGroupPanel::OnExpandAllGroupsClicked()
 
 void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> ContentBox)
 {
-	TWeakPtr<SMaterialInstanceGroupPanel, ESPMode::NotThreadSafe> WeakSelf = StaticCastSharedRef<SMaterialInstanceGroupPanel>(AsShared());
+	TWeakPtr<SMaterialInstanceGroupPanel, ESPMode::ThreadSafe> WeakSelf = StaticCastSharedRef<SMaterialInstanceGroupPanel>(AsShared());
 
 	// Builds the 2px blue drop-indicator line shown between rows / at group end during a drag.
 	auto MakeDropIndicator = []() -> TSharedRef<SWidget>
@@ -898,7 +898,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 								#else
 									Args.InitialColorOverride = V2->VectorValue;
 								#endif
-									TWeakPtr<FMLPInstanceParamVM, ESPMode::NotThreadSafe> WeakParam = V2;
+									TWeakPtr<FMLPInstanceParamVM, ESPMode::ThreadSafe> WeakParam = V2;
 									Args.OnColorCommitted = FOnLinearColorValueChanged::CreateLambda([WeakSelf, WeakParam](FLinearColor NewColor) {
 										auto Self = WeakSelf.Pin(); auto Param = WeakParam.Pin();
 										if (Self.IsValid() && Param.IsValid()) Self->OnInstanceVectorChanged(Param, NewColor);
@@ -1022,7 +1022,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 							Config.Filter.ClassNames.Add(TEXT("Texture2D"));
 						#endif
 							auto WeakV2 = WeakVM;
-							TWeakPtr<SMaterialInstanceGroupPanel, ESPMode::NotThreadSafe> WeakSelf2 = WeakSelf;
+							TWeakPtr<SMaterialInstanceGroupPanel, ESPMode::ThreadSafe> WeakSelf2 = WeakSelf;
 							Config.OnAssetSelected = FOnAssetSelected::CreateLambda([WeakSelf2, WeakV2](const FAssetData& AssetData) -> void {
 								auto Self2 = WeakSelf2.Pin(); auto V2 = WeakV2.Pin();
 								if (!Self2.IsValid() || !V2.IsValid() || !AssetData.IsValid()) { FSlateApplication::Get().DismissAllMenus(); return; }
@@ -1550,7 +1550,7 @@ TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildRowContextMenu(TSharedPtr<
 {
 	// Capture the param weakly so the menu actions don't keep it alive past the panel.
 	TWeakPtr<FMLPInstanceParamVM> WeakParam = Param;
-	TWeakPtr<SMaterialInstanceGroupPanel, ESPMode::NotThreadSafe> WeakSelf = StaticCastSharedRef<SMaterialInstanceGroupPanel>(AsShared());
+	TWeakPtr<SMaterialInstanceGroupPanel, ESPMode::ThreadSafe> WeakSelf = StaticCastSharedRef<SMaterialInstanceGroupPanel>(AsShared());
 
 	FMenuBuilder MenuBuilder(true, nullptr);
 

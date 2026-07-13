@@ -28,7 +28,9 @@
 #include "ScopedTransaction.h"
 #include "IMaterialEditor.h"
 #include "MaterialEditorModule.h"
-#include "Toolkits/AssetEditorManager.h"
+#if ENGINE_MAJOR_VERSION < 5
+#include "Toolkits/AssetEditorManager.h"  // 4.26 only; UE5 uses UAssetEditorSubsystem
+#endif
 #include "Toolkits/AssetEditorToolkit.h"
 #if ENGINE_MAJOR_VERSION >= 5
 #include "Styling/AppStyle.h"
@@ -65,7 +67,11 @@ void FMaterialLayoutProModule::StartupModule()
 	}
 
 	// Hook into ANY asset-editor open event. Filter for materials inside.
-	FAssetEditorManager::Get().OnAssetOpenedInEditor().AddRaw(this, &FMaterialLayoutProModule::OnAssetOpenedInEditor);
+	// Use UAssetEditorSubsystem (not the deprecated FAssetEditorManager) for UE5 compatibility.
+	if (UAssetEditorSubsystem* AssetEditorSS = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr)
+	{
+		AssetEditorSS->OnAssetOpenedInEditor().AddRaw(this, &FMaterialLayoutProModule::OnAssetOpenedInEditor);
+	}
 
 	// Add a toolbar extender at the MODULE level - every material/material-instance editor gets the button.
 	RegisterMaterialEditorToolbarExtender();
@@ -83,7 +89,10 @@ void FMaterialLayoutProModule::ShutdownModule()
 
 	if (GEditor)
 	{
-		FAssetEditorManager::Get().OnAssetOpenedInEditor().RemoveAll(this);
+		if (UAssetEditorSubsystem* AssetEditorSS = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
+		{
+			AssetEditorSS->OnAssetOpenedInEditor().RemoveAll(this);
+		}
 	}
 
 	// Remove the module-level toolbar extender so material editors don't dangle a reference.

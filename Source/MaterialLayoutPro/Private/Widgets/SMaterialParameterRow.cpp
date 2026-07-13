@@ -453,8 +453,8 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 #endif
 						// Capture weak ptrs - the row or VM may be destroyed if the panel
 						// is rebuilt while the color picker is open.
-						TWeakPtr<SMaterialParameterRow, ESPMode::NotThreadSafe> WeakRow = StaticCastSharedRef<SMaterialParameterRow>(AsShared());
-						TWeakPtr<FMLPParamVM, ESPMode::NotThreadSafe> WeakParam = V;
+						TWeakPtr<SMaterialParameterRow, ESPMode::ThreadSafe> WeakRow = StaticCastSharedRef<SMaterialParameterRow>(AsShared());
+						TWeakPtr<FMLPParamVM, ESPMode::ThreadSafe> WeakParam = V;
 						Args.OnColorCommitted = FOnLinearColorValueChanged::CreateLambda([WeakRow, WeakParam](FLinearColor NewColor) {
 							auto Row = WeakRow.Pin();
 							auto Param = WeakParam.Pin();
@@ -570,7 +570,7 @@ void SMaterialParameterRow::OnScalarCommitted(float NewValue, ETextCommit::Type 
 
 TSharedRef<SWidget> SMaterialParameterRow::MakeVectorChannelBox(TWeakPtr<FMLPParamVM> WeakVM, int32 ChannelIdx, const FText& Label)
 {
-	TWeakPtr<SMaterialParameterRow, ESPMode::NotThreadSafe> WeakRow = StaticCastSharedRef<SMaterialParameterRow>(AsShared());
+	TWeakPtr<SMaterialParameterRow, ESPMode::ThreadSafe> WeakRow = StaticCastSharedRef<SMaterialParameterRow>(AsShared());
 	return SNew(SHorizontalBox)
 		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 		[

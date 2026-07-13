@@ -300,7 +300,8 @@ void SMaterialCSVImportDialog::BuildPreview()
 			Row.OldSortPriority = (*Found)->SortPriority;
 			Row.bWillChange = (Row.OldGroup != Row.NewGroup) || (Row.OldSortPriority != Row.NewSortPriority);
 			// Non-mutating check so the preview doesn't change the material before confirm.
-			Row.bWillChangeValue = WouldValueChange(*Found, Row.NewValue);
+				UMaterialExpressionParameter* Expr = *Found;
+				Row.bWillChangeValue = WouldValueChange(Expr, Row.NewValue);
 			Row.bWillChange = Row.bWillChange || Row.bWillChangeValue;
 		}
 		Rows.Add(MoveTemp(Row));
@@ -455,7 +456,8 @@ FReply SMaterialCSVImportDialog::OnApplyClicked()
 				(*Found)->Group = FName(*R.NewGroup);
 				(*Found)->SortPriority = R.NewSortPriority;
 				// Apply the Value column too (scalar/vector/texture/bool). Returns true if it wrote.
-				ApplyValueToExpression(*Found, R.NewValue);
+				UMaterialExpressionParameter* Expr = *Found;
+				ApplyValueToExpression(Expr, R.NewValue);
 				++Applied;
 			}
 		}

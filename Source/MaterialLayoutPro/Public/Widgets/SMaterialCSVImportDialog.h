@@ -4,6 +4,7 @@
 #include "Widgets/SWindow.h"
 
 class UMaterial;
+class UMaterialExpressionParameter;
 
 /** Broadcast after the CSV import was applied and the material post-edited. */
 DECLARE_DELEGATE(FOnCSVImportApplied);
