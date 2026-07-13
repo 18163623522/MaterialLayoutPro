@@ -867,6 +867,11 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("GBC","按注释")).ToolTipText(LOCTEXT("GBCT","按注释框分组")).OnClicked(this,&SMaterialLayoutProPanel::OnGroupByCommentClicked)
 		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("RP","重置排序号")).ToolTipText(LOCTEXT("RPT","把所有参数的排序号按组内顺序重排为 0,1,2...(修复手动编辑后的碎片/冲突)")).OnClicked(this,&SMaterialLayoutProPanel::OnResetAllPrioritiesClicked)
+		]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		+ SHorizontalBox::Slot().AutoWidth()
 		[
@@ -1076,6 +1081,38 @@ FReply SMaterialLayoutProPanel::OnAutoGroupRulesClicked()
 			S->GetCategoryName(),
 			S->GetSectionName());
 	}
+	return FReply::Handled();
+}
+
+FReply SMaterialLayoutProPanel::OnResetAllPrioritiesClicked()
+{
+	if (!TargetMaterial.IsValid() || !Session.IsValid()) return FReply::Handled();
+
+	const FScopedTransaction T(LOCTEXT("ResetPrio", "重置全部排序号"));
+	UMaterial* M = TargetMaterial.Get();
+	M->Modify();
+
+	// Renumber each group's parameters to contiguous 0,1,2,... by their current display order.
+	// This fixes fragmented/duplicate SortPriorities left after manual edits.
+	for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
+	{
+		if (!Group.IsValid()) continue;
+		for (int32 i = 0; i < Group->Parameters.Num(); ++i)
+		{
+			const TSharedPtr<FMLPParamVM>& Param = Group->Parameters[i];
+			if (Param.IsValid())
+			{
+				Param->SortPriority = i;
+				Param->bDirty = true;
+				Param->PushToExpression();
+			}
+		}
+	}
+
+	M->PostEditChange();
+	M->MarkPackageDirty();
+	NotifyMaterialEditorChanged();
+	RebuildTree();
 	return FReply::Handled();
 }
 

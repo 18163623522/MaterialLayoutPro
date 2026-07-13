@@ -80,6 +80,9 @@ private:
 	FReply OnAutoGroupClicked();
 	/** Open Project Settings → Material Layout Pro to edit the auto-group prefix rules. */
 	FReply OnAutoGroupRulesClicked();
+	/** Renumber every parameter's SortPriority to its position within its group (0,1,2,...),
+	 *  so priorities are contiguous after manual edits leave them fragmented. */
+	FReply OnResetAllPrioritiesClicked();
 	FReply OnExportClicked();
 	FReply OnImportClicked();
 	FReply OnSortWorkbenchClicked();
