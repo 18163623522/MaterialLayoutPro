@@ -349,6 +349,7 @@ void SMaterialInstanceGroupPanel::PullFromInstance()
 		}
 		VM->ExpressionGUID = P->Guid;
 		VM->Type = (int32)P->Type;
+		VM->bHasDuplicateName = P->bHasDuplicateName;
 
 		// Fold in instance override values.
 		FHashedMaterialParameterInfo ParamInfo(VM->Name);
@@ -1005,6 +1006,22 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 						if (Self.IsValid() && V.IsValid()) Self->OnToggleOverride(V);
 					})
 					.ToolTipText(LOCTEXT("OverrideTT", "勾选=覆盖实例值"))
+				]
+				// Duplicate-name warning badge (⚠) — shown only when another param shares this name.
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(2, 0, 0, 0))
+				[
+					SNew(SBox)
+					.Visibility_Lambda([WeakVM]() -> EVisibility {
+						auto V = WeakVM.Pin();
+						return (V.IsValid() && V->bHasDuplicateName) ? EVisibility::Visible : EVisibility::Hidden;
+					})
+					[
+						SNew(STextBlock)
+						.Text(FText::FromString(TEXT("⚠")))
+						.Font(FMLPTheme::FontBody())
+						.ColorAndOpacity(FMLPTheme::Warning())
+						.ToolTipText(LOCTEXT("DupNameTTInst", "重复参数名:父材质里有其他参数同名,运行时只有一个生效。"))
+					]
 				]
 				// Parameter name
 				+ SHorizontalBox::Slot().FillWidth(0.30f).VAlign(VAlign_Center).Padding(FMargin(4, 0))

@@ -18,6 +18,10 @@ public:
 	static TArray<TSharedPtr<FMLPParameterInfo>> ScanMaterialInstance(UMaterialInstance* MaterialInstance);
 
 private:
+	/** Mark bHasDuplicateName=true on every param whose Name appears more than once in the list.
+	 *  Called by ScanMaterial so callers always get the flag computed. */
+	static void DetectDuplicateNames(TArray<TSharedPtr<FMLPParameterInfo>>& Parameters);
+
 	static TSharedPtr<FMLPParameterInfo> CreateInfo(UMaterialExpression* Expression);
 	static EMLPParameterType DetermineType(UMaterialExpression* Expression);
 	static FName GetGroup(UMaterialExpression* Expression);

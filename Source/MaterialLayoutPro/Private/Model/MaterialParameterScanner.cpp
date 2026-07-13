@@ -36,7 +36,36 @@ TArray<TSharedPtr<FMLPParameterInfo>> FMaterialParameterScanner::ScanMaterial(UM
 		}
 	}
 
+	// Compute duplicate-name flags so callers always see them populated (e.g. the material
+	// panel colors duplicate parameter names as a warning).
+	DetectDuplicateNames(Result);
+
 	return Result;
+}
+
+void FMaterialParameterScanner::DetectDuplicateNames(TArray<TSharedPtr<FMLPParameterInfo>>& Parameters)
+{
+	// Count occurrences of each parameter name; any name seen >1 times is a conflict.
+	TMap<FName, int32> NameCounts;
+	NameCounts.Reserve(Parameters.Num());
+	for (const TSharedPtr<FMLPParameterInfo>& P : Parameters)
+	{
+		if (P.IsValid())
+		{
+			int32& Count = NameCounts.FindOrAdd(P->Name);
+			++Count;
+		}
+	}
+	for (const TSharedPtr<FMLPParameterInfo>& P : Parameters)
+	{
+		if (P.IsValid())
+		{
+			if (const int32* Count = NameCounts.Find(P->Name))
+			{
+				P->bHasDuplicateName = (*Count > 1);
+			}
+		}
+	}
 }
 
 TArray<TSharedPtr<FMLPParameterInfo>> FMaterialParameterScanner::ScanMaterialInstance(UMaterialInstance* MaterialInstance)

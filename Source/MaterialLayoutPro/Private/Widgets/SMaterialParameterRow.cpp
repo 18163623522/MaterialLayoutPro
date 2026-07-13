@@ -138,6 +138,21 @@ void SMaterialParameterRow::Construct(const FArguments& InArgs)
 					]
 				]
 
+				// Duplicate-name warning badge (⚠) — shown only when another param shares this
+				// name (a material error: only one wins at runtime). Tooltip explains the cause.
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 2.f, 0.f))
+				[
+					SNew(SBox)
+					.Visibility(VM->bHasDuplicateName ? EVisibility::Visible : EVisibility::Hidden)
+					[
+						SNew(STextBlock)
+						.Text(FText::FromString(TEXT("⚠")))
+						.Font(FMLPTheme::FontBody())
+						.ColorAndOpacity(FMLPTheme::Warning())
+						.ToolTipText(LOCTEXT("DupNameTT", "重复参数名:有其他参数同名,运行时只有一个生效,请重命名其中之一。"))
+					]
+				]
+
 				// Name (editable)
 				+ SHorizontalBox::Slot().FillWidth(0.30f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 4.f, 0.f))
 				[

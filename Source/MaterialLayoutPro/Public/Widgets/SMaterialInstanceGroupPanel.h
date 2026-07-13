@@ -22,6 +22,8 @@ struct FMLPInstanceParamVM
 	FGuid ExpressionGUID;
 	int32 Type = 0;  // EMLPParameterType
 	bool bOverridden = false;
+	/** True if another parameter shares this Name (a material error). Set in PullFromInstance. */
+	bool bHasDuplicateName = false;
 
 	float ScalarValue = 0.f;
 	FLinearColor VectorValue = FLinearColor::White;
