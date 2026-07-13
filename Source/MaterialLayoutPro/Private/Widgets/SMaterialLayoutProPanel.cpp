@@ -6,6 +6,7 @@
 #include "Model/MaterialParameterScanner.h"
 #include "Model/MaterialParameterInfo.h"
 #include "Widgets/SMaterialParameterRow.h"
+#include "Widgets/SMaterialCSVImportDialog.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialExpression.h"
@@ -1099,22 +1100,22 @@ FReply SMaterialLayoutProPanel::OnImportClicked()
 	TArray<FString> F;
 	if (DP->OpenFileDialog(nullptr, LOCTEXT("ID","从 CSV 导入参数").ToString(), FPaths::ProjectSavedDir(), TEXT(""), TEXT("CSV files|*.csv"), EFileDialogFlags::None, F) && F.Num()>0)
 	{
-		FString C; if (!FFileHelper::LoadFileToString(C, *F[0])) return FReply::Handled();
-		TArray<FString> L; C.ParseIntoArrayLines(L); if (L.Num()<2) return FReply::Handled();
-		TMap<FName, UMaterialExpressionParameter*> M;
-#if ENGINE_MAJOR_VERSION >= 5
-		for (auto* E : TargetMaterial->GetExpressions())
-#else
-		for (auto* E : TargetMaterial->Expressions)
-#endif
-			if (auto* P = Cast<UMaterialExpressionParameter>(E)) M.Add(P->ParameterName, P);
-		const FScopedTransaction T(LOCTEXT("IP","从 CSV 导入参数"));
-		auto* Mat = TargetMaterial.Get(); Mat->Modify();
-		for (int32 i=1;i<L.Num();++i) { if (L[i].IsEmpty()) continue;
-			TArray<FString> Fl; L[i].ParseIntoArray(Fl, TEXT(","), false); if (Fl.Num()<4) continue;
-			auto** P = M.Find(FName(*Fl[0])); if (!P||!*P) continue;
-			(*P)->Modify(); (*P)->Group = FName(*Fl[2]); (*P)->SortPriority = FCString::Atoi(*Fl[3]); }
-		Mat->PostEditChange(); Mat->MarkPackageDirty(); NotifyMaterialEditorChanged(); RefreshParameters();
+		FString CSVText;
+		if (!FFileHelper::LoadFileToString(CSVText, *F[0])) return FReply::Handled();
+
+		// Open a preview dialog: parses with proper quoted-CSV handling, shows matched/unknown
+		// rows + a change summary, and only writes back after the user confirms.
+		auto OnApplied = FOnCSVImportApplied::CreateLambda([this]()
+		{
+			NotifyMaterialEditorChanged();
+			RefreshParameters();
+		});
+		FSlateApplication::Get().AddWindow(
+			SNew(SMaterialCSVImportDialog)
+			.TargetMaterial(TargetMaterial)
+			.CSVText(CSVText)
+			.OnApplied(OnApplied)
+		);
 	}
 	return FReply::Handled();
 }
