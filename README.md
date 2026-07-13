@@ -11,21 +11,34 @@
 
 ## 当前功能
 
-- **Nomad Tab 面板**：`Window → Material Layout Pro` 打开全局可停靠面板。
+- **材质编辑器嵌入面板**：材质编辑器工具栏按钮打开可停靠"参数布局"侧边栏；材质实例编辑器自动显示"实例分组"面板。
+- **Nomad Tab 面板**：`Window -> Material Layout Pro` 打开全局可停靠面板。
 - **参数扫描**：自动读取当前选中的 `UMaterial` 或 `UMaterialInstance` 的参数节点。
-- **分组折叠展示**：按 `Group` 字段对参数分组，支持展开/折叠、按排序优先级排序。
+- **分组折叠展示**：按 `Group` 字段对参数分组，支持展开/折叠（▶/▼ + 全折叠/全展开按钮）、按排序优先级排序。
+- **搜索/过滤**：实例面板按参数名实时过滤 + 匹配计数状态栏；搜索时自动展开折叠的组。
 - **类型 / 状态徽章**：
   - 类型：Scalar / Vector / Texture / Static Switch
   - 状态：Used / Unused / Half-Used / Indirect / Unknown
+- **参数去重检测**：同名参数标 ⚠ 警告徽章（两面板），提示用户重命名。
 - **多选操作**：支持 `Ctrl` 单选、`Shift` 范围选择。
 - **批量改 Group**：输入 Group 名称后一键应用到所有选中参数。
-- **自动分组**：根据参数名前缀自动归类（如 `Tex_` → Textures、`R_` → Channels）。
+- **值编辑**：标量直接输入；Vector 参数可直接输入 R/G/B/A 数值或点色块开颜色选择器；纹理内容浏览器选；静态开关勾选。
+- **实例覆盖管理**：实例面板勾选/切换单个参数覆盖；全部启用/重置覆盖按钮；改值自动启用覆盖。
+- **拖拽精确插入**：拖 `::` 手柄到任意行之间精确插入（含跨组），蓝线落点指示器。
+- **右键菜单**：两面板参数行右键弹菜单（复制名/定位节点/移动到分组子菜单/切换覆盖）。
+- **节点联动**：单击参数高亮材质编辑器图中对应节点；双击跳转定位。
+- **定位资产**：工具栏按钮在内容浏览器中选中并定位当前材质。
+- **自动分组**：根据参数名前缀自动归类（规则可在 Project Settings 配置；工具栏"分组规则"按钮直达）。
 - **按注释分组**：根据材质编辑器中的 Comment 框区域将内部参数归到同名 Group。
+- **重置排序号**：一键把所有参数 SortPriority 按组内顺序重排为 0,1,2,...。
 - **归档未使用参数**：一键将 Unused 参数移到 `Deprecated` 分组。
 - **删除未使用参数**：一键从材质表达式列表中移除 Unused 参数节点。
 - **批量重命名对话框**：Find & Replace / 正则预览，对选中参数批量改名。
 - **导出 CSV**：将参数列表导出为 `Name,Type,Group,SortPriority,Usage,Value` 格式。
-- **Undo/Redo 支持**：所有写操作都通过 `FScopedTransaction` 包裹。
+- **导入 CSV**：预览对话框（匹配/未知/将变化计数 + 彩色行预览）确认后写回 Group/SortPriority/Value；引号稳健解析。
+- **分组预设模板**：保存/应用 Name->Group 映射为 .json 模板，跨材质复用。
+- **工具栏"更多"菜单**：低频按钮收进下拉菜单，保持窗口紧凑。
+- **Undo/Redo 支持**：所有写操作都通过 `FScopedTransaction` 包裹 + `RF_Transactional` 标志，Ctrl+Z 可撤回。
 
 ---
 
@@ -45,24 +58,34 @@ MaterialLayoutPro/
     │   ├── MaterialLayoutProCommands.h
     │   ├── MaterialLayoutProStyle.h
     │   ├── MaterialLayoutProTheme.h          # 设计 token / 颜色 / helper
+    │   ├── MaterialLayoutProSettings.h       # 项目设置(自动分组规则等)
     │   ├── Model/
     │   │   ├── MaterialParameterInfo.h       # 参数数据模型
-    │   │   └── MaterialParameterScanner.h    # 扫描器接口
+    │   │   └── MaterialParameterScanner.h    # 扫描器接口(Private/)
     │   └── Widgets/
-    │       ├── SMaterialLayoutProPanel.h     # 主面板
-    │       ├── SMaterialParameterRow.h       # 参数行
-    │       └── SMaterialBulkRenameDialog.h   # 批量重命名弹窗
+    │       ├── SMaterialLayoutProPanel.h     # 材质面板
+    │       ├── SMaterialParameterRow.h       # 材质参数行
+    │       ├── SMaterialBulkRenameDialog.h   # 批量重命名弹窗
+    │       ├── SMaterialCSVImportDialog.h    # CSV 导入预览对话框
+    │       ├── SMaterialInstanceGroupPanel.h # 实例分组面板 + 拖拽/折叠
+    │       └── ...
     └── Private/
-        ├── MaterialLayoutPro.cpp
+        ├── MaterialLayoutPro.cpp             # 模块:工具栏/TAB/事件绑定
         ├── MaterialLayoutProCommands.cpp
         ├── MaterialLayoutProStyle.cpp
+        ├── MaterialLayoutProSettings.cpp     # 设置默认值
+        ├── MaterialInstanceGroupData.cpp     # 实例分组持久化(AssetUserData)
         ├── Model/
-        │   ├── MaterialParameterScanner.cpp
-        │   └── MaterialParameterUsageAnalyzer.cpp
+        │   ├── MaterialParameterScanner.cpp  # 含去重检测
+        │   ├── MaterialParameterUsageAnalyzer.cpp
+        │   └── MaterialLayoutViewModel.cpp   # 材质 VM(PushToExpression)
         └── Widgets/
-            ├── SMaterialLayoutProPanel.cpp
-            ├── SMaterialParameterRow.cpp
-            └── SMaterialBulkRenameDialog.cpp
+            ├── SMaterialLayoutProPanel.cpp   # 材质面板(搜索/折叠/右键/模板/CSV)
+            ├── SMaterialParameterRow.cpp      # 材质参数行(Vector RGBA 编辑等)
+            ├── SMaterialBulkRenameDialog.cpp
+            ├── SMaterialCSVImportDialog.cpp   # CSV 预览 + Value 写回
+            └── SMaterialInstanceGroupPanel.cpp # 实例面板(搜索/折叠/拖拽/右键/覆盖)
+```
 ```
 
 ---
@@ -168,13 +191,13 @@ MaterialLayoutPro/
 
 | 优先级 | 功能点 | 状态 | 说明 |
 |--------|--------|------|------|
-| P1 | 批量改 Sort Priority | ⏳ | 对选中参数统一偏移或设置优先级 |
+| P1 | 批量改 Sort Priority | ✅ | "重置排序号"按钮：按组内顺序重排为 0,1,2,... |
 | P1 | 使用链路可视化 | ⏳ | 显示参数的上游输入 / 下游输出节点 |
-| P1 | 一键清理 Deprecated | ⏳ | 删除所有 Deprecated 分组中的节点 |
+| P1 | 一键清理 Deprecated | ✅ | "归档未用"+"删除未用"按钮 |
 | P2 | 重命名同步 Material Instance | ⏳ | 参数改名时同步更新实例覆盖记录 |
-| P2 | 导入 CSV 反向修改 | ⏳ | 从 CSV 读取 Group/Priority 并写回材质 |
-| P2 | 参数去重检测 | ⏳ | 检测同名 GUID 冲突或重复参数名 |
-| P3 | 预设模板 | ⏳ | 保存/加载常用的分组规则为模板 |
+| P2 | 导入 CSV 反向修改 | ✅ | 含 Group/SortPriority/Value 写回 + 预览对话框（引号稳健解析） |
+| P2 | 参数去重检测 | ✅ | 同名参数标 ⚠ 警告徽章（两面板） |
+| P3 | 预设模板 | ✅ | 保存/应用 Name→Group 映射为 .json 模板（跨材质复用） |
 | P3 | 批量创建参数 | ⏳ | 根据 CSV/JSON 批量在材质中创建参数节点 |
 
 ---
@@ -201,7 +224,7 @@ MaterialLayoutPro/
 ## 依赖
 
 - Unreal Engine 4.26+
-- 依赖模块：`Core`, `CoreUObject`, `Engine`, `InputCore`, `Slate`, `SlateCore`, `EditorStyle`, `UnrealEd`, `ToolMenus`, `Projects`, `RenderCore`, `RHI`, `MaterialEditor`, `EditorWidgets`, `PropertyEditor`, `ApplicationCore`, `LevelEditor`, `EditorSubsystem`, `AssetRegistry`, `DesktopPlatform`, `ContentBrowser`
+- 依赖模块：`Core`, `CoreUObject`, `Engine`, `InputCore`, `Slate`, `SlateCore`, `EditorStyle`, `UnrealEd`, `ToolMenus`, `Projects`, `RenderCore`, `RHI`, `MaterialEditor`, `EditorWidgets`, `PropertyEditor`, `ApplicationCore`, `LevelEditor`, `EditorSubsystem`, `AssetRegistry`, `DesktopPlatform`, `ContentBrowser`, `DeveloperSettings`, `AppFramework`, `Json`
 
 ---
 
