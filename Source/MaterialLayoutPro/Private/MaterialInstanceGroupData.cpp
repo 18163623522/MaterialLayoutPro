@@ -85,6 +85,10 @@ void UMaterialInstanceGroupData::SetParamSort(const FName& ParamName, int32 Inde
 void UMaterialInstanceGroupData::Save(UMaterialInstance* MI)
 {
 	if (!MI) return;
+	// Ensure both objects are transactional so edits are undoable. The MI especially may not
+	// carry RF_Transactional when loaded, which would silently break Ctrl+Z.
+	MI->SetFlags(RF_Transactional);
+	this->SetFlags(RF_Transactional);
 	MI->Modify();
 	this->Modify();
 	MI->MarkPackageDirty();

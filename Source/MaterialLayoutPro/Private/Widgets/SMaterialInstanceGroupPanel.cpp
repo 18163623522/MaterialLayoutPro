@@ -1299,6 +1299,9 @@ FReply SMaterialInstanceGroupPanel::OnResetAllOverridesClicked()
 
 	UMaterialInstance* MI = TargetInstance.Get();
 	const FScopedTransaction T(FText::FromString(TEXT("重置全部覆盖")));
+	// Ensure the instance is transactional so Modify() snapshots it into the undo buffer.
+	// Loaded MIs don't always carry RF_Transactional, in which case edits wouldn't be undoable.
+	MI->SetFlags(RF_Transactional);
 	MI->Modify();
 
 	// Clear every typed override array.
@@ -1409,6 +1412,9 @@ void SMaterialInstanceGroupPanel::OnToggleOverride(TSharedPtr<FMLPInstanceParamV
 	if (!Param.IsValid() || !TargetInstance.IsValid()) return;
 	UMaterialInstance* MI = TargetInstance.Get();
 	const FScopedTransaction T(FText::FromString(TEXT("切换参数覆盖")));
+	// Ensure the instance is transactional so Modify() snapshots it into the undo buffer.
+	// Loaded MIs don't always carry RF_Transactional, in which case edits wouldn't be undoable.
+	MI->SetFlags(RF_Transactional);
 	MI->Modify();
 
 	if (Param->bOverridden)
@@ -1466,6 +1472,9 @@ void SMaterialInstanceGroupPanel::OnInstanceScalarChanged(TSharedPtr<FMLPInstanc
 	Param->ScalarValue = NewValue;
 	UMaterialInstance* MI = TargetInstance.Get();
 	const FScopedTransaction T(FText::FromString(TEXT("修改标量参数")));
+	// Ensure the instance is transactional so Modify() snapshots it into the undo buffer.
+	// Loaded MIs don't always carry RF_Transactional, in which case edits wouldn't be undoable.
+	MI->SetFlags(RF_Transactional);
 	MI->Modify();
 	bool bFound = false;
 	for (auto& V : MI->ScalarParameterValues)
@@ -1486,6 +1495,9 @@ void SMaterialInstanceGroupPanel::OnInstanceVectorChanged(TSharedPtr<FMLPInstanc
 	Param->VectorValue = NewColor;
 	UMaterialInstance* MI = TargetInstance.Get();
 	const FScopedTransaction T(FText::FromString(TEXT("修改向量参数")));
+	// Ensure the instance is transactional so Modify() snapshots it into the undo buffer.
+	// Loaded MIs don't always carry RF_Transactional, in which case edits wouldn't be undoable.
+	MI->SetFlags(RF_Transactional);
 	MI->Modify();
 	bool bFound = false;
 	for (auto& V : MI->VectorParameterValues)
@@ -1506,6 +1518,9 @@ void SMaterialInstanceGroupPanel::OnInstanceTextureChanged(TSharedPtr<FMLPInstan
 	Param->TextureValue = Cast<UTexture>(NewTexture);
 	UMaterialInstance* MI = TargetInstance.Get();
 	const FScopedTransaction T(FText::FromString(TEXT("修改纹理参数")));
+	// Ensure the instance is transactional so Modify() snapshots it into the undo buffer.
+	// Loaded MIs don't always carry RF_Transactional, in which case edits wouldn't be undoable.
+	MI->SetFlags(RF_Transactional);
 	MI->Modify();
 	bool bFound = false;
 	for (auto& V : MI->TextureParameterValues)
@@ -1533,6 +1548,9 @@ void SMaterialInstanceGroupPanel::SetStaticSwitchOverride(TSharedPtr<FMLPInstanc
 	UMaterialInstance* MI = TargetInstance.Get();
 
 	const FScopedTransaction T(FText::FromString(TEXT("修改静态开关参数")));
+	// Ensure the instance is transactional so Modify() snapshots it into the undo buffer.
+	// Loaded MIs don't always carry RF_Transactional, in which case edits wouldn't be undoable.
+	MI->SetFlags(RF_Transactional);
 	MI->Modify();
 
 	FStaticParameterSet ParamSet;
