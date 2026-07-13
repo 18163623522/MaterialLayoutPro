@@ -181,6 +181,8 @@ private:
 	/** Clear every override on the instance (scalar/vector/texture/static-switch), reverting all
 	 *  params to the parent material's defaults. Asks for confirmation first. */
 	FReply OnResetAllOverridesClicked();
+	/** Enable an override on every parameter using its current value. Asks for confirmation first. */
+	FReply OnEnableAllOverridesClicked();
 
 	// --- Override value handlers (write straight to the MI's typed value arrays) ---
 	void OnToggleOverride(TSharedPtr<FMLPInstanceParamVM> Param);

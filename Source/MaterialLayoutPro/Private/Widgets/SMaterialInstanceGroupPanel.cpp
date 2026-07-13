@@ -549,6 +549,12 @@ TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildToolbar()
 		+ SHorizontalBox::Slot().AutoWidth()
 		[
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("EnableAll", "全部启用覆盖")).ToolTipText(LOCTEXT("EnableAllTT", "用当前值为所有参数启用覆盖"))
+			.OnClicked(this, &SMaterialInstanceGroupPanel::OnEnableAllOverridesClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("ResetAll", "重置全部覆盖")).ToolTipText(LOCTEXT("ResetAllTT", "清除所有参数覆盖,回退到父材质默认值"))
 			.OnClicked(this, &SMaterialInstanceGroupPanel::OnResetAllOverridesClicked)
 		];
@@ -1321,6 +1327,100 @@ FReply SMaterialInstanceGroupPanel::OnResetAllOverridesClicked()
 		if (P.IsValid()) P->bOverridden = false;
 	}
 
+	MI->PostEditChange();
+	MI->MarkPackageDirty();
+	PullFromInstance();
+	RebuildInstanceContent();
+	return FReply::Handled();
+}
+
+FReply SMaterialInstanceGroupPanel::OnEnableAllOverridesClicked()
+{
+	if (!TargetInstance.IsValid()) return FReply::Handled();
+
+	// Count params that aren't yet overridden (only those need enabling).
+	int32 ToEnable = 0;
+	for (const auto& P : AllParams)
+	{
+		if (P.IsValid() && !P->bOverridden) ++ToEnable;
+	}
+	if (ToEnable == 0) return FReply::Handled();  // nothing to do
+
+	const FText ConfirmMsg = FText::Format(
+		LOCTEXT("EnableAllConf", "确定要用当前值为 {0} 个参数启用覆盖吗?\n此操作可撤销。"),
+		FText::AsNumber(ToEnable));
+	if (FMessageDialog::Open(EAppMsgType::YesNo, ConfirmMsg) != EAppReturnType::Yes)
+	{
+		return FReply::Handled();
+	}
+
+	UMaterialInstance* MI = TargetInstance.Get();
+	const FScopedTransaction T(FText::FromString(TEXT("全部启用覆盖")));
+	MI->SetFlags(RF_Transactional);
+	MI->Modify();
+
+	// Build a combined static-switch set once (avoid per-param UpdateStaticPermutation).
+	FStaticParameterSet ParamSet;
+	MI->GetStaticParameterValues(ParamSet);
+
+	for (const auto& P : AllParams)
+	{
+		if (!P.IsValid() || P->bOverridden) continue;
+
+		switch (P->Type)
+		{
+		case (int32)EMLPParameterType::Scalar:
+		{
+			FScalarParameterValue SV;
+			SV.ParameterInfo = FMaterialParameterInfo(P->Name);
+			SV.ParameterValue = P->ScalarValue;
+			SV.ExpressionGUID = P->ExpressionGUID;
+			MI->ScalarParameterValues.Add(SV);
+			break;
+		}
+		case (int32)EMLPParameterType::Vector:
+		{
+			FVectorParameterValue VV;
+			VV.ParameterInfo = FMaterialParameterInfo(P->Name);
+			VV.ParameterValue = P->VectorValue;
+			VV.ExpressionGUID = P->ExpressionGUID;
+			MI->VectorParameterValues.Add(VV);
+			break;
+		}
+		case (int32)EMLPParameterType::Texture:
+		{
+			FTextureParameterValue TV;
+			TV.ParameterInfo = FMaterialParameterInfo(P->Name);
+			TV.ParameterValue = P->TextureValue.Get();
+			TV.ExpressionGUID = P->ExpressionGUID;
+			MI->TextureParameterValues.Add(TV);
+			break;
+		}
+		case (int32)EMLPParameterType::StaticBool:
+		case (int32)EMLPParameterType::StaticSwitch:
+		{
+			// Add/update the override entry in the combined set.
+			bool bFound = false;
+			for (FStaticSwitchParameter& SP : ParamSet.StaticSwitchParameters)
+			{
+				if (SP.ParameterInfo.Name == P->Name)
+				{
+					SP.bOverride = true; SP.Value = P->BoolValue; bFound = true; break;
+				}
+			}
+			if (!bFound)
+			{
+				ParamSet.StaticSwitchParameters.Add(FStaticSwitchParameter(
+					FMaterialParameterInfo(P->Name), P->BoolValue, true, P->ExpressionGUID));
+			}
+			break;
+		}
+		default: break;
+		}
+		P->bOverridden = true;
+	}
+
+	MI->UpdateStaticPermutation(ParamSet);
 	MI->PostEditChange();
 	MI->MarkPackageDirty();
 	PullFromInstance();
