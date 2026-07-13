@@ -866,6 +866,11 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("ExpandAll","全展开")).ToolTipText(LOCTEXT("ExpandAllTT","展开所有分组")).OnClicked(this,&SMaterialLayoutProPanel::OnExpandAllGroupsClicked)
 		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("AG","自动分组")).ToolTipText(LOCTEXT("AGT","按名称前缀自动分组")).OnClicked(this,&SMaterialLayoutProPanel::OnAutoGroupClicked)
+		]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		// "更多 ▾" - less-frequently-used actions grouped in a dropdown to keep the toolbar narrow.
 		+ SHorizontalBox::Slot().AutoWidth()
@@ -912,8 +917,6 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildMoreMenu()
 	FMenuBuilder Menu(true, nullptr);
 
 	// --- 分组 ---
-	Menu.AddMenuEntry(LOCTEXT("AG","自动分组"), LOCTEXT("AGT","按名称前缀自动分组"), FSlateIcon(),
-		FExecuteAction::CreateLambda([this]() { OnAutoGroupClicked(); }));
 	Menu.AddMenuEntry(LOCTEXT("AGR","分组规则"), LOCTEXT("AGRT","打开项目设置编辑自动分组的前缀规则"), FSlateIcon(),
 		FExecuteAction::CreateLambda([this]() { OnAutoGroupRulesClicked(); }));
 	Menu.AddMenuEntry(LOCTEXT("GBC","按注释"), LOCTEXT("GBCT","按注释框分组"), FSlateIcon(),
