@@ -16,6 +16,15 @@ class SWidget;
 class MATERIALLAYOUTPRO_API SMaterialLayoutProPanel : public SCompoundWidget
 {
 public:
+	/** How to sort parameters within each group in the tree (view-only, never written back). */
+	enum class ESortMode : uint8
+	{
+		Priority,  // by SortPriority then Name (default, matches material)
+		Name,      // alphabetically by name
+		Type,      // by parameter type then name
+		Usage,     // by usage status (Used first) then name
+	};
+
 	SLATE_BEGIN_ARGS(SMaterialLayoutProPanel) {}
 		SLATE_ARGUMENT(TWeakPtr<IMaterialEditor>, OwningMaterialEditor)
 	SLATE_END_ARGS()
@@ -44,6 +53,12 @@ private:
 	TSharedRef<SWidget> BuildStatusBar();
 	/** Build the "更多" dropdown menu content (grouping / cleanup / import-export / templates). */
 	TSharedRef<SWidget> BuildMoreMenu();
+	/** Build the sort-mode dropdown menu (Priority / Name / Type / Usage). */
+	TSharedRef<SWidget> BuildSortMenu();
+	/** Re-sort parameters within each group according to SortMode (view-only). Called by RebuildTree. */
+	void ApplyViewSort();
+	/** Called when the sort-mode combo selection changes. */
+	void OnSortModeChanged(ESortMode NewMode);
 	void RefreshParameters();
 	void RebuildTree();
 
@@ -124,6 +139,8 @@ private:
 
 	// --- Search filter ---
 	FString SearchText;
+	/** Current view sort mode (Priority/Name/Type/Usage). View-only, never written back. */
+	ESortMode SortMode = ESortMode::Priority;
 	/** Names of groups the user has collapsed (session-only view state, not persisted). */
 	TSet<FName> CollapsedGroups;
 

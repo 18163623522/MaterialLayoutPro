@@ -295,6 +295,9 @@ void SMaterialLayoutProPanel::RebuildTree()
 	if (!TreeContainer.IsValid()) return;
 	TreeContainer->ClearChildren();
 
+	// Apply the view sort (Name/Type/Usage) if the user changed it from the default Priority.
+	ApplyViewSort();
+
 	if (!Session.IsValid() || Session->Groups.Num() == 0)
 	{
 		TreeContainer->AddSlot()
@@ -981,6 +984,30 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 				SNew(STextBlock).Text(LOCTEXT("More", "更多 ▾"))
 			]
 		]
+		// Sort mode selector (view-only: Priority / Name / Type / Usage).
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SComboButton)
+			.ButtonStyle(MLP_STYLE::Get(), "FlatButton")
+			.ContentPadding(FMLPTheme::PadBtn())
+			.ToolTipText(LOCTEXT("SortTT", "切换参数排序方式(仅显示,不改材质)"))
+			.OnGetMenuContent(this, &SMaterialLayoutProPanel::BuildSortMenu)
+			.ButtonContent()
+			[
+				SNew(STextBlock)
+				.Text_Lambda([this]() -> FText {
+					switch (SortMode)
+					{
+					case ESortMode::Name:  return FText::FromString(TEXT("排序: 名称"));
+					case ESortMode::Type:  return FText::FromString(TEXT("排序: 类型"));
+					case ESortMode::Usage: return FText::FromString(TEXT("排序: 状态"));
+					default:               return FText::FromString(TEXT("排序: 优先级"));
+					}
+				})
+				.Font(FMLPTheme::FontSmall())
+				.ColorAndOpacity(FMLPTheme::Foreground())
+			]
+		]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		// Set-group for multi-selection: input box + apply button.
 		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0,0,2,0))
@@ -1053,6 +1080,80 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildMoreMenu()
 		FExecuteAction::CreateLambda([this]() { OnApplyGroupTemplateClicked(); }));
 
 	return Menu.MakeWidget();
+}
+
+TSharedRef<SWidget> SMaterialLayoutProPanel::BuildSortMenu()
+{
+	FMenuBuilder Menu(true, nullptr);
+	// Each entry uses a checkmark on the active mode and calls OnSortModeChanged on click.
+	auto AddSortEntry = [&Menu, this](const FText& Label, ESortMode Mode)
+	{
+		Menu.AddMenuEntry(
+			Label, FText::GetEmpty(), FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateLambda([this, Mode]() { OnSortModeChanged(Mode); }),
+				FCanExecuteAction(),
+				FIsActionChecked::CreateLambda([this, Mode]() { return SortMode == Mode; })
+			),
+			NAME_None,
+			EUserInterfaceActionType::ToggleButton
+		);
+	};
+	AddSortEntry(LOCTEXT("SortPriority", "按优先级"), ESortMode::Priority);
+	AddSortEntry(LOCTEXT("SortName", "按名称"),    ESortMode::Name);
+	AddSortEntry(LOCTEXT("SortType", "按类型"),    ESortMode::Type);
+	AddSortEntry(LOCTEXT("SortUsage", "按使用状态"), ESortMode::Usage);
+	return Menu.MakeWidget();
+}
+
+void SMaterialLayoutProPanel::ApplyViewSort()
+{
+	if (!Session.IsValid()) return;
+	if (SortMode == ESortMode::Priority) return;  // already sorted by priority in the VM
+
+	auto GetUsageRank = [](EMLPParameterUsage U) -> int32
+	{
+		// Lower rank = appears first. Used > HalfUsed > Indirect > Unused > Unknown.
+		switch (U)
+		{
+		case EMLPParameterUsage::Used:     return 0;
+		case EMLPParameterUsage::HalfUsed: return 1;
+		case EMLPParameterUsage::Indirect: return 2;
+		case EMLPParameterUsage::Unused:  return 3;
+		default:                          return 4;
+		}
+	};
+
+	for (const TSharedPtr<FMLPGroupVM>& Group : Session->Groups)
+	{
+		if (!Group.IsValid()) continue;
+		Group->Parameters.Sort([this, &GetUsageRank](const TSharedPtr<FMLPParamVM>& A, const TSharedPtr<FMLPParamVM>& B)
+		{
+			switch (SortMode)
+			{
+			case ESortMode::Name:
+				return A->Name.ToString() < B->Name.ToString();
+			case ESortMode::Type:
+				if (A->Type != B->Type) return (int32)A->Type < (int32)B->Type;
+				return A->Name.ToString() < B->Name.ToString();
+			case ESortMode::Usage:
+			{
+				const int32 Ra = GetUsageRank(A->Usage), Rb = GetUsageRank(B->Usage);
+				if (Ra != Rb) return Ra < Rb;
+				return A->Name.ToString() < B->Name.ToString();
+			}
+			default:  // Priority - already sorted
+				return A->Name.ToString() < B->Name.ToString();
+			}
+		});
+	}
+}
+
+void SMaterialLayoutProPanel::OnSortModeChanged(ESortMode NewMode)
+{
+	if (SortMode == NewMode) return;
+	SortMode = NewMode;
+	RebuildTree();
 }
 
 TSharedRef<SWidget> SMaterialLayoutProPanel::BuildStatusBar()
