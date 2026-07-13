@@ -29,6 +29,11 @@
 #include "IDesktopPlatform.h"
 #include "Misc/FileHelper.h"
 #include "HAL/PlatformFilemanager.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
+#include "Policies/CondensedJsonPrintPolicy.h"
+#include "Misc/MessageDialog.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
@@ -914,6 +919,16 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("IM","导入")).ToolTipText(LOCTEXT("IMT","导入 CSV")).OnClicked(this,&SMaterialLayoutProPanel::OnImportClicked)
 		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("SaveTpl","保存模板")).ToolTipText(LOCTEXT("SaveTplTT","把当前材质的参数->分组映射保存为 .json 模板,可应用到其他材质")).OnClicked(this,&SMaterialLayoutProPanel::OnSaveGroupTemplateClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("ApplyTpl","应用模板")).ToolTipText(LOCTEXT("ApplyTplTT","从 .json 模板加载参数->分组映射并应用到当前材质")).OnClicked(this,&SMaterialLayoutProPanel::OnApplyGroupTemplateClicked)
+		]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		// Set-group for multi-selection: input box + apply button.
 		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0,0,2,0))
@@ -1208,6 +1223,119 @@ FReply SMaterialLayoutProPanel::OnImportClicked()
 			.OnApplied(OnApplied)
 		);
 	}
+	return FReply::Handled();
+}
+
+FReply SMaterialLayoutProPanel::OnSaveGroupTemplateClicked()
+{
+	if (!TargetMaterial.IsValid()) return FReply::Handled();
+
+	auto* DP = FDesktopPlatformModule::Get(); if (!DP) return FReply::Handled();
+	TArray<FString> F;
+	if (!DP->SaveFileDialog(nullptr, LOCTEXT("SaveTemplate", "保存分组模板").ToString(), FPaths::ProjectSavedDir(),
+		TEXT("GroupTemplate.json"), TEXT("JSON files|*.json"), EFileDialogFlags::None, F) || F.Num() == 0)
+	{
+		return FReply::Handled();
+	}
+
+	// Build a JSON array of {name, group} from the material's current parameter expressions.
+	auto Params = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
+	TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+	TArray<TSharedPtr<FJsonValue>> Entries;
+	for (const auto& P : Params)
+	{
+		if (!P.IsValid()) continue;
+		TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+		Entry->SetStringField(TEXT("name"), P->Name.ToString());
+		Entry->SetStringField(TEXT("group"), P->Group.ToString());
+		Entries.Add(MakeShared<FJsonValueObject>(Entry));
+	}
+	Root->SetArrayField(TEXT("parameters"), Entries);
+
+	FString Output;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
+	FJsonSerializer::Serialize(Root, Writer);
+
+	FFileHelper::SaveStringToFile(Output, *F[0]);
+	return FReply::Handled();
+}
+
+FReply SMaterialLayoutProPanel::OnApplyGroupTemplateClicked()
+{
+	if (!TargetMaterial.IsValid()) return FReply::Handled();
+
+	auto* DP = FDesktopPlatformModule::Get(); if (!DP) return FReply::Handled();
+	TArray<FString> F;
+	if (!DP->OpenFileDialog(nullptr, LOCTEXT("ApplyTemplate", "应用分组模板").ToString(), FPaths::ProjectSavedDir(),
+		TEXT(""), TEXT("JSON files|*.json"), EFileDialogFlags::None, F) || F.Num() == 0)
+	{
+		return FReply::Handled();
+	}
+
+	// Load + parse the JSON template into a Name -> Group map.
+	FString JsonText;
+	if (!FFileHelper::LoadFileToString(JsonText, *F[0])) return FReply::Handled();
+
+	TSharedPtr<FJsonObject> Root;
+	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid()) return FReply::Handled();
+
+	if (!Root->HasField(TEXT("parameters"))) return FReply::Handled();
+	const TArray<TSharedPtr<FJsonValue>>& Entries = Root->GetArrayField(TEXT("parameters"));
+
+	TMap<FName, FName> TemplateMap;
+	for (const TSharedPtr<FJsonValue>& Val : Entries)
+	{
+		const TSharedPtr<FJsonObject>* Obj;
+		if (!Val.IsValid() || !Val->TryGetObject(Obj) || !Obj->IsValid()) continue;
+		const FName Name(*(*Obj)->GetStringField(TEXT("name")));
+		const FName Group(*(*Obj)->GetStringField(TEXT("group")));
+		if (!Name.IsNone()) TemplateMap.Add(Name, Group);
+	}
+	if (TemplateMap.Num() == 0) return FReply::Handled();
+
+	// Build a single-shot transaction applying each matched param's group from the template.
+	auto Params = FMaterialParameterScanner::ScanMaterial(TargetMaterial.Get());
+	const FScopedTransaction T(LOCTEXT("ApplyTpl", "应用分组模板"));
+	UMaterial* M = TargetMaterial.Get();
+	M->SetFlags(RF_Transactional);
+	M->Modify();
+
+	int32 Applied = 0, Matched = 0;
+	TMap<FName, UMaterialExpressionParameter*> NameToExpr;
+#if ENGINE_MAJOR_VERSION >= 5
+	for (UMaterialExpression* E : M->GetExpressions())
+#else
+	for (UMaterialExpression* E : M->Expressions)
+#endif
+	{
+		if (auto* P = Cast<UMaterialExpressionParameter>(E)) NameToExpr.Add(P->ParameterName, P);
+	}
+
+	for (const auto& Pair : TemplateMap)
+	{
+		if (UMaterialExpressionParameter* const* Found = NameToExpr.Find(Pair.Key))
+		{
+			++Matched;
+			if ((*Found)->Group != Pair.Value)
+			{
+				(*Found)->SetFlags(RF_Transactional);
+				(*Found)->Modify();
+				(*Found)->Group = Pair.Value;
+				++Applied;
+			}
+		}
+	}
+
+	M->PostEditChange();
+	M->MarkPackageDirty();
+	NotifyMaterialEditorChanged();
+	RefreshParameters();
+
+	// Brief feedback on how many matched/applied.
+	const FText Result = FText::Format(LOCTEXT("TemplateResult", "模板应用完成:匹配 {0} 个参数,更新 {1} 个分组。"),
+		FText::AsNumber(Matched), FText::AsNumber(Applied));
+	FMessageDialog::Open(EAppMsgType::Ok, Result);
 	return FReply::Handled();
 }
 

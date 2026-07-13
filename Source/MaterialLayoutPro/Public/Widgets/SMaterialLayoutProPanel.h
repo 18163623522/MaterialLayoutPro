@@ -87,6 +87,11 @@ private:
 	FReply OnResetAllPrioritiesClicked();
 	FReply OnExportClicked();
 	FReply OnImportClicked();
+	/** Save the current material's {ParamName -> Group} mapping to a .json template for reuse. */
+	FReply OnSaveGroupTemplateClicked();
+	/** Load a group template .json and apply its {Name -> Group} to this material's params
+	 *  (preview + confirm, like CSV import). */
+	FReply OnApplyGroupTemplateClicked();
 	FReply OnSortWorkbenchClicked();
 	FReply OnParameterEditorClicked();
 	FReply OnGroupByCommentClicked();
