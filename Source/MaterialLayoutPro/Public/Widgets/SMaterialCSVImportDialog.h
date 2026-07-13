@@ -38,14 +38,23 @@ private:
 		FString Name;
 		FString NewGroup;
 		int32 NewSortPriority = 0;
+		FString NewValue;       // raw CSV Value field (may be empty = don't change value)
 		FString OldGroup;       // current value on the expression (empty if unknown param)
 		int32 OldSortPriority = 0;
 		bool bMatched = false;  // false = param name not found in material (will be skipped)
 		bool bWillChange = false; // matched AND (group or priority differs)
+		bool bWillChangeValue = false; // matched AND value parses AND differs from current
 	};
 
 	/** Robust CSV line splitter: honors double-quoted fields (commas inside quotes are literal). */
 	static void ParseCSVLine(const FString& Line, TArray<FString>& OutFields);
+	/** Apply a Value string to a typed parameter expression, mutating it. Returns true if changed.
+	 *  Handles scalar ("%.4f"), vector ("R:.. G:.. B:.. A:.."), texture (full object path),
+	 *  and static bool ("True"/"False"). Empty ValueString => no change (returns false). */
+	static bool ApplyValueToExpression(UMaterialExpressionParameter* Expr, const FString& ValueString);
+	/** Non-mutating check: would ApplyValueToExpression change this expression? Used by the
+	 *  preview so it doesn't mutate the material before the user confirms. */
+	static bool WouldValueChange(UMaterialExpressionParameter* Expr, const FString& ValueString);
 
 	/** Parse CSVText + resolve each row against the material's parameters. */
 	void BuildPreview();
