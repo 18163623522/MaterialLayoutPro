@@ -12,6 +12,8 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionComment.h"
+#include "MaterialShared.h"                       // FExpressionInput
+#include "UObject/Field.h"                         // TFieldIterator/FProperty/FStructProperty
 #include "EdGraph/EdGraph.h"
 #include "Engine/Texture.h"
 #include "Widgets/SMaterialSortWorkbench.h"
@@ -641,6 +643,72 @@ void SMaterialLayoutProPanel::MoveParamToGroup(TSharedPtr<FMLPParamVM> Param, FN
 	RebuildTree();
 }
 
+void SMaterialLayoutProPanel::ShowUsageLinks(TSharedPtr<FMLPParamVM> Param)
+{
+	if (!Param.IsValid() || !TargetMaterial.IsValid() || !Param->SourceExpression.IsValid()) return;
+
+	UMaterialExpression* TargetExpr = Param->SourceExpression.Get();
+	UMaterial* M = TargetMaterial.Get();
+
+	// --- Downstream: find expressions that have an FExpressionInput pointing to TargetExpr.
+	TArray<FString> Downstream;
+#if ENGINE_MAJOR_VERSION >= 5
+	const auto& AllExprs = M->GetExpressions();
+#else
+	const auto& AllExprs = M->Expressions;
+#endif
+	for (UMaterialExpression* OtherExpr : AllExprs)
+	{
+		if (!OtherExpr || OtherExpr == TargetExpr) continue;
+		// Scan all FExpressionInput properties on this expression (compare by struct name -
+		// FExpressionInput is a noexport USTRUCT with no C++ StaticStruct()).
+		for (TFieldIterator<FProperty> PropIt(OtherExpr->GetClass()); PropIt; ++PropIt)
+		{
+			FProperty* Prop = *PropIt;
+			if (!Prop) continue;
+			FStructProperty* StructProp = CastField<FStructProperty>(Prop);
+			if (!StructProp || !StructProp->Struct) continue;
+			if (StructProp->Struct->GetFName() != FName(TEXT("ExpressionInput"))) continue;
+			FExpressionInput* Input = StructProp->ContainerPtrToValuePtr<FExpressionInput>(OtherExpr);
+			if (Input && Input->Expression == TargetExpr)
+			{
+				FString ClassName = OtherExpr->GetClass()->GetName();
+				ClassName.ReplaceInline(TEXT("MaterialExpression"), TEXT("ME"));
+				Downstream.Add(FString::Printf(TEXT("%s  (%d, %d)"),
+					*ClassName, OtherExpr->MaterialExpressionEditorX, OtherExpr->MaterialExpressionEditorY));
+				break;
+			}
+		}
+	}
+
+	// --- Upstream: the parameter's own inputs (usually empty for source parameters).
+	TArray<FString> Upstream;
+	const TArray<FExpressionInput*> Inputs = TargetExpr->GetInputs();
+	for (FExpressionInput* Input : Inputs)
+	{
+		if (Input && Input->Expression)
+		{
+			FString ClassName = Input->Expression->GetClass()->GetName();
+			ClassName.ReplaceInline(TEXT("MaterialExpression"), TEXT("ME"));
+			Upstream.Add(FString::Printf(TEXT("%s  (%d, %d)"),
+				*ClassName, Input->Expression->MaterialExpressionEditorX, Input->Expression->MaterialExpressionEditorY));
+		}
+	}
+
+	// --- Build the dialog text.
+	FString Report;
+	Report += FString::Printf(TEXT("参数: %s\n\n"), *Param->Name.ToString());
+	Report += TEXT("▼ 下游(使用此参数的节点):\n");
+	if (Downstream.Num() == 0) Report += TEXT("  (无 - 此参数未被连接)\n");
+	else for (const FString& D : Downstream) Report += FString::Printf(TEXT("  • %s\n"), *D);
+	Report += TEXT("\n▲ 上游(此参数的输入源):\n");
+	if (Upstream.Num() == 0) Report += TEXT("  (无 - 参数是源节点)\n");
+	else for (const FString& U : Upstream) Report += FString::Printf(TEXT("  • %s\n"), *U);
+	Report += FString::Printf(TEXT("\n共 %d 个下游消费者。"), Downstream.Num());
+
+	FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Report));
+}
+
 TSharedRef<SWidget> SMaterialLayoutProPanel::BuildRowContextMenu(TSharedPtr<FMLPParamVM> Param)
 {
 	TWeakPtr<FMLPParamVM> WeakParam = Param;
@@ -682,6 +750,19 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildRowContextMenu(TSharedPtr<FMLP
 		if (Group.IsValid()) AllGroupNames.Add(Group->Name);
 	}
 	const FName CurrentGroup = Param.IsValid() ? Param->Group : NAME_None;
+	// Show usage links (downstream consumers + upstream inputs) - placed before the move-to-group submenu.
+	// (Inserted here to keep the menu order: copy / jump / usage-links / move-to-group / toggle-override)
+	MenuBuilder.AddMenuEntry(
+		LOCTEXT("CtxUsageLinks", "查看使用链路"),
+		LOCTEXT("CtxUsageLinksTT", "显示连接到此参数的上下游节点(类名+位置)"),
+		FSlateIcon(),
+		FUIAction(FExecuteAction::CreateLambda([WeakSelf, WeakParam]()
+		{
+			auto Self = WeakSelf.Pin(); auto P = WeakParam.Pin();
+			if (Self.IsValid() && P.IsValid()) Self->ShowUsageLinks(P);
+		}))
+	);
+	// (The AllGroupNames array above is consumed by the move-to-group submenu below.)
 	MenuBuilder.AddSubMenu(
 		LOCTEXT("CtxMoveToGroup", "移动到分组"),
 		LOCTEXT("CtxMoveToGroupTT", "将此参数移到另一个分组(写入材质表达式 Group)"),

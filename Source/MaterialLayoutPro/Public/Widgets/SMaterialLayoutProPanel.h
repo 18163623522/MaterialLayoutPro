@@ -60,6 +60,8 @@ private:
 	TSharedRef<SWidget> BuildRowContextMenu(TSharedPtr<FMLPParamVM> Param);
 	/** Move a param to a different group (writes the expression Group + pushes back to material). */
 	void MoveParamToGroup(TSharedPtr<FMLPParamVM> Param, FName NewGroup);
+	/** Show a dialog listing the downstream consumers + upstream inputs of a parameter. */
+	void ShowUsageLinks(TSharedPtr<FMLPParamVM> Param);
 
 	// --- Search ---
 	void OnSearchChanged(const FText& NewText);
