@@ -71,6 +71,10 @@ void FMLPParamVM::PushToExpression()
 
     if (UMaterialExpressionParameter* Param = Cast<UMaterialExpressionParameter>(Expr))
     {
+        // Ensure the expression is transactional so Modify() snapshots it into the undo buffer.
+        // The material editor's preview expressions don't always carry RF_Transactional, which
+        // would silently break Ctrl+Z for group/priority/value edits.
+        Param->SetFlags(RF_Transactional);
         Param->Modify();
         Param->Group = Group;
         Param->SortPriority = SortPriority;

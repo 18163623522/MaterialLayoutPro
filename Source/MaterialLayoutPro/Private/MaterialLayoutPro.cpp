@@ -551,6 +551,7 @@ void FMaterialLayoutProModule::OnSyncCommentToGroup(FMenuBuilder& MenuBuilder, c
 			const FVector2D CommentMax(CommentNode->NodePosX + CommentNode->NodeWidth, CommentNode->NodePosY + CommentNode->NodeHeight);
 
 			const FScopedTransaction Transaction(FText::FromString(TEXT("同步注释到参数分组")));
+			Material->SetFlags(RF_Transactional);
 			Material->Modify();
 
 #if ENGINE_MAJOR_VERSION >= 5
@@ -565,6 +566,7 @@ void FMaterialLayoutProModule::OnSyncCommentToGroup(FMenuBuilder& MenuBuilder, c
 				const FVector2D Pos(Expression->MaterialExpressionEditorX, Expression->MaterialExpressionEditorY);
 				if (Pos.X >= CommentMin.X && Pos.X <= CommentMax.X && Pos.Y >= CommentMin.Y && Pos.Y <= CommentMax.Y)
 				{
+					ParamExpr->SetFlags(RF_Transactional);
 					ParamExpr->Modify();
 					ParamExpr->Group = GroupNameFName;
 				}

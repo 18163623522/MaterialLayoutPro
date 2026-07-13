@@ -350,6 +350,7 @@ FReply SMaterialSortWorkbench::OnApplyClicked()
 
 	UMaterial* Material = TargetMaterial.Get();
 	const FScopedTransaction Transaction(LOCTEXT("ApplySortWorkbench", "应用排序工作台更改"));
+	Material->SetFlags(RF_Transactional);
 	Material->Modify();
 
 	// Write Group + SortPriority back for every parameter.
@@ -361,6 +362,7 @@ FReply SMaterialSortWorkbench::OnApplyClicked()
 		}
 		if (UMaterialExpressionParameter* ParamExpr = Cast<UMaterialExpressionParameter>(Param->Expression.Get()))
 		{
+			ParamExpr->SetFlags(RF_Transactional);
 			ParamExpr->Modify();
 			ParamExpr->Group = Param->Group;
 			ParamExpr->SortPriority = Param->SortPriority;

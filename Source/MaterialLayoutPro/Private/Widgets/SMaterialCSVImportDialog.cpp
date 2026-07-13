@@ -256,6 +256,7 @@ FReply SMaterialCSVImportDialog::OnApplyClicked()
 	{
 		const FScopedTransaction T(LOCTEXT("ImportTx", "从 CSV 导入参数"));
 		UMaterial* M = TargetMaterial.Get();
+		M->SetFlags(RF_Transactional);
 		M->Modify();
 
 		int32 Applied = 0;
@@ -275,6 +276,7 @@ FReply SMaterialCSVImportDialog::OnApplyClicked()
 			if (!R.bMatched || !R.bWillChange) continue;
 			if (UMaterialExpressionParameter* const* Found = NameToExpr.Find(FName(*R.Name)))
 			{
+				(*Found)->SetFlags(RF_Transactional);
 				(*Found)->Modify();
 				(*Found)->Group = FName(*R.NewGroup);
 				(*Found)->SortPriority = R.NewSortPriority;

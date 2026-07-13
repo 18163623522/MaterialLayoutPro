@@ -397,6 +397,7 @@ FReply SMaterialParameterEditor::OnApplyToInstanceClicked()
 
 	UMaterialInstance* Instance = TargetInstance.Get();
 	const FScopedTransaction Transaction(LOCTEXT("ApplyParameterEditorToInstance", "将参数编辑器应用到实例"));
+	Instance->SetFlags(RF_Transactional);
 	Instance->Modify();
 
 	// Read values from the VM snapshots and write them as instance overrides.

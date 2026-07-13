@@ -516,6 +516,7 @@ void SMaterialLayoutProPanel::OnParamDropped(TSharedPtr<FMLPParamVM> DraggedPara
 	// Single transaction for undo.
 	const FScopedTransaction Transaction(FText::FromString(TEXT("拖拽重排序参数")));
 	UMaterial* M = TargetMaterial.Get();
+	M->SetFlags(RF_Transactional);  // ensure undo snapshots the material + its expressions
 	M->Modify();
 
 	// 1. Remove from source group.
@@ -589,6 +590,7 @@ void SMaterialLayoutProPanel::MoveParamToGroup(TSharedPtr<FMLPParamVM> Param, FN
 
 	const FScopedTransaction Transaction(FText::FromString(TEXT("移动参数到分组")));
 	UMaterial* M = TargetMaterial.Get();
+	M->SetFlags(RF_Transactional);
 	M->Modify();
 
 	// Remove from source group's display list (if found).
@@ -990,12 +992,12 @@ FReply SMaterialLayoutProPanel::OnArchiveUnusedClicked()
 	const auto* S = GetDefault<UMaterialLayoutProSettings>();
 	const FName Dep(S ? *S->DeprecatedGroupName : TEXT("Deprecated"));
 	const FScopedTransaction T(LOCTEXT("AU","归档未使用的参数"));
-	auto* M = TargetMaterial.Get(); M->Modify();
+	auto* M = TargetMaterial.Get(); M->SetFlags(RF_Transactional); M->Modify();
 	auto Params = FMaterialParameterScanner::ScanMaterial(M);
 	FMaterialParameterUsageAnalyzer::Analyze(M, Params);
 	int32 Archived = 0;
 	for (auto& P : Params) if (P->Usage == EMLPParameterUsage::Unused)
-		if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E->Modify(); E->Group = Dep; ++Archived; }
+		if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get())) { E->SetFlags(RF_Transactional); E->Modify(); E->Group = Dep; ++Archived; }
 	M->PostEditChange(); M->MarkPackageDirty(); NotifyMaterialEditorChanged(); RefreshParameters();
 	return FReply::Handled();
 }
@@ -1004,7 +1006,7 @@ FReply SMaterialLayoutProPanel::OnDeleteUnusedClicked()
 {
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
 	const FScopedTransaction T(LOCTEXT("DU","删除未使用的参数"));
-	auto* M = TargetMaterial.Get(); M->Modify();
+	auto* M = TargetMaterial.Get(); M->SetFlags(RF_Transactional); M->Modify();
 	auto Params = FMaterialParameterScanner::ScanMaterial(M);
 	FMaterialParameterUsageAnalyzer::Analyze(M, Params);
 	int32 Deleted = 0;
@@ -1027,7 +1029,7 @@ FReply SMaterialLayoutProPanel::OnAutoGroupClicked()
 	const auto* S = GetDefault<UMaterialLayoutProSettings>();
 	if (!S) return FReply::Handled();
 	const FScopedTransaction T(LOCTEXT("AG","自动分组参数"));
-	auto* M = TargetMaterial.Get(); M->Modify();
+	auto* M = TargetMaterial.Get(); M->SetFlags(RF_Transactional); M->Modify();
 	auto Params = FMaterialParameterScanner::ScanMaterial(M);
 	int32 Grouped = 0;
 	for (auto& P : Params)
@@ -1042,7 +1044,7 @@ FReply SMaterialLayoutProPanel::OnAutoGroupClicked()
 			if (N.StartsWith(R.Prefix))
 			{
 				if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get()))
-				{ E->Modify(); E->Group = FName(*R.Group); ++Grouped; }
+				{ E->SetFlags(RF_Transactional); E->Modify(); E->Group = FName(*R.Group); ++Grouped; }
 				bMatched = true;
 				break;
 			}
@@ -1060,7 +1062,7 @@ FReply SMaterialLayoutProPanel::OnAutoGroupClicked()
 			if (!GroupName.IsEmpty())
 			{
 				if (auto* E = Cast<UMaterialExpressionParameter>(P->Expression.Get()))
-				{ E->Modify(); E->Group = FName(*GroupName); ++Grouped; }
+				{ E->SetFlags(RF_Transactional); E->Modify(); E->Group = FName(*GroupName); ++Grouped; }
 			}
 		}
 	}
@@ -1090,6 +1092,7 @@ FReply SMaterialLayoutProPanel::OnResetAllPrioritiesClicked()
 
 	const FScopedTransaction T(LOCTEXT("ResetPrio", "重置全部排序号"));
 	UMaterial* M = TargetMaterial.Get();
+	M->SetFlags(RF_Transactional);
 	M->Modify();
 
 	// Renumber each group's parameters to contiguous 0,1,2,... by their current display order.
@@ -1120,6 +1123,7 @@ FReply SMaterialLayoutProPanel::OnGroupByCommentClicked()
 {
 	if (!TargetMaterial.IsValid()) return FReply::Handled();
 	auto* M = TargetMaterial.Get(); const FScopedTransaction T(LOCTEXT("GBC","按注释分组参数"));
+	M->SetFlags(RF_Transactional);
 	M->Modify();
 	// Scan once - reuse for all comment boxes.
 	auto Params = FMaterialParameterScanner::ScanMaterial(M);
