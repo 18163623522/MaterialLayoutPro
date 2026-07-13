@@ -408,6 +408,7 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 			.AllowSpin(true)
 			.MinValue(TOptional<float>()).MaxValue(TOptional<float>())
 			.MinSliderValue(TOptional<float>()).MaxSliderValue(TOptional<float>())
+			.MinDesiredValueWidth(40.f)
 			.OnValueChanged(this, &SMaterialParameterRow::OnScalarDragged)
 			.OnValueCommitted(this, &SMaterialParameterRow::OnScalarCommitted);
 	}
@@ -471,10 +472,24 @@ TSharedRef<SWidget> SMaterialParameterRow::BuildValueEditor()
 			]
 			+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
 			[
-				SNew(STextBlock)
-				.Text_Lambda(GetRGBAText)
-				.Font(FMLPTheme::FontSmall())
-				.ColorAndOpacity(FMLPTheme::Muted())
+				// 4 compact editable numeric boxes for R/G/B/A (label + value each).
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 2.f, 0.f))
+				[
+					MakeVectorChannelBox(WeakVM, 0, LOCTEXT("ChR", "R"))
+				]
+				+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 2.f, 0.f))
+				[
+					MakeVectorChannelBox(WeakVM, 1, LOCTEXT("ChG", "G"))
+				]
+				+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 2.f, 0.f))
+				[
+					MakeVectorChannelBox(WeakVM, 2, LOCTEXT("ChB", "B"))
+				]
+				+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
+				[
+					MakeVectorChannelBox(WeakVM, 3, LOCTEXT("ChA", "A"))
+				]
 			];
 	}
 	case EMLPParameterType::Texture:
@@ -551,6 +566,40 @@ void SMaterialParameterRow::OnScalarDragged(float NewValue)
 void SMaterialParameterRow::OnScalarCommitted(float NewValue, ETextCommit::Type CommitType)
 {
 	if (VM.IsValid()) { VM->ScalarValue = NewValue; VM->bDirty = true; if (Session.IsValid()) Session->PushParamNow(VM); }
+}
+
+TSharedRef<SWidget> SMaterialParameterRow::MakeVectorChannelBox(TWeakPtr<FMLPParamVM> WeakVM, int32 ChannelIdx, const FText& Label)
+{
+	TWeakPtr<SMaterialParameterRow, ESPMode::NotThreadSafe> WeakRow = StaticCastSharedRef<SMaterialParameterRow>(AsShared());
+	return SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+		[
+			SNew(STextBlock)
+			.Text(Label)
+			.Font(FMLPTheme::FontSmall())
+			.ColorAndOpacity(FMLPTheme::Muted())
+		]
+		+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(FMargin(2.f, 0.f, 0.f, 0.f))
+		[
+			SNew(SNumericEntryBox<float>)
+			.Value_Lambda([WeakVM, ChannelIdx]() -> TOptional<float> {
+				auto V = WeakVM.Pin();
+				if (!V.IsValid()) return TOptional<float>();
+				switch (ChannelIdx) { case 0: return V->VectorValue.R; case 1: return V->VectorValue.G; case 2: return V->VectorValue.B; default: return V->VectorValue.A; }
+			})
+			.Font(FMLPTheme::FontSmall())
+			.AllowSpin(true)
+			.MinValue(TOptional<float>()).MaxValue(TOptional<float>())
+			.MinSliderValue(TOptional<float>()).MaxSliderValue(TOptional<float>())
+			.MinDesiredValueWidth(30.f)
+			.OnValueCommitted_Lambda([WeakRow, WeakVM, ChannelIdx](float NewVal, ETextCommit::Type) {
+				auto Row = WeakRow.Pin(); auto V = WeakVM.Pin();
+				if (!Row.IsValid() || !V.IsValid() || !Row->Session.IsValid()) return;
+				switch (ChannelIdx) { case 0: V->VectorValue.R = NewVal; break; case 1: V->VectorValue.G = NewVal; break; case 2: V->VectorValue.B = NewVal; break; default: V->VectorValue.A = NewVal; break; }
+				V->bDirty = true;
+				Row->Session->PushParamNow(V);
+			})
+		];
 }
 
 void SMaterialParameterRow::OnVectorChanged(FLinearColor NewColor)

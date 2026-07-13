@@ -68,6 +68,8 @@ private:
 
 	TSharedRef<SWidget> BuildValueEditor();
 	TSharedRef<SWidget> BuildDragHandle();
+	/** Build a compact numeric box for one Vector channel (0=R,1=G,2=B,3=A). */
+	TSharedRef<SWidget> MakeVectorChannelBox(TWeakPtr<FMLPParamVM> WeakVM, int32 ChannelIdx, const FText& Label);
 
 	void OnScalarCommitted(float NewValue, ETextCommit::Type CommitType);
 	void OnScalarDragged(float NewValue);

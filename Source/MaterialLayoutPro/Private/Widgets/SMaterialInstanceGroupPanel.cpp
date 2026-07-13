@@ -863,7 +863,7 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 						.AllowSpin(true)
 						.MinValue(TOptional<float>()).MaxValue(TOptional<float>())
 						.MinSliderValue(TOptional<float>()).MaxSliderValue(TOptional<float>())
-						.MinDesiredValueWidth(80.f)
+						.MinDesiredValueWidth(40.f)
 						.OnValueChanged_Lambda([WeakV2](float NewVal) {
 							auto V2 = WeakV2.Pin(); if (V2.IsValid()) V2->ScalarValue = NewVal;
 						})
@@ -910,15 +910,98 @@ void SMaterialInstanceGroupPanel::BuildGroupSections(TSharedRef<SVerticalBox> Co
 						]
 						+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
 						[
-							SNew(STextBlock)
-							.Text_Lambda([WeakV2]() -> FText {
-								auto V2 = WeakV2.Pin(); if (!V2.IsValid()) return FText::GetEmpty();
-								const FLinearColor& C = V2->VectorValue;
-								return FText::FromString(FString::Printf(TEXT("R:%.2f G:%.2f B:%.2f A:%.2f"), C.R, C.G, C.B, C.A));
-							})
-							.Font(FMLPTheme::FontSmall()).ColorAndOpacity(FMLPTheme::Muted())
+							// 4 compact editable numeric boxes for R/G/B/A.
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 2.f, 0.f))
+							[
+								SNew(SHorizontalBox)
+								+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+								[
+									SNew(STextBlock).Text(FText::FromString(TEXT("R"))).Font(FMLPTheme::FontSmall()).ColorAndOpacity(FMLPTheme::Muted())
+								]
+								+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(FMargin(2.f, 0.f, 0.f, 0.f))
+								[
+									SNew(SNumericEntryBox<float>)
+									.Value_Lambda([WeakV2]() -> TOptional<float> { auto V2 = WeakV2.Pin(); return V2.IsValid() ? TOptional<float>(V2->VectorValue.R) : TOptional<float>(); })
+									.Font(FMLPTheme::FontSmall())
+									.AllowSpin(true)
+									.MinValue(TOptional<float>()).MaxValue(TOptional<float>())
+									.MinSliderValue(TOptional<float>()).MaxSliderValue(TOptional<float>())
+									.MinDesiredValueWidth(30.f)
+									.OnValueCommitted_Lambda([WeakSelf, WeakV2](float NewVal, ETextCommit::Type) {
+										auto Self = WeakSelf.Pin(); auto V2 = WeakV2.Pin();
+										if (Self.IsValid() && V2.IsValid()) { FLinearColor C = V2->VectorValue; C.R = NewVal; Self->OnInstanceVectorChanged(V2, C); }
+									})
+								]
+							]
+							+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 2.f, 0.f))
+							[
+								SNew(SHorizontalBox)
+								+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+								[
+									SNew(STextBlock).Text(FText::FromString(TEXT("G"))).Font(FMLPTheme::FontSmall()).ColorAndOpacity(FMLPTheme::Muted())
+								]
+								+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(FMargin(2.f, 0.f, 0.f, 0.f))
+								[
+									SNew(SNumericEntryBox<float>)
+									.Value_Lambda([WeakV2]() -> TOptional<float> { auto V2 = WeakV2.Pin(); return V2.IsValid() ? TOptional<float>(V2->VectorValue.G) : TOptional<float>(); })
+									.Font(FMLPTheme::FontSmall())
+									.AllowSpin(true)
+									.MinValue(TOptional<float>()).MaxValue(TOptional<float>())
+									.MinSliderValue(TOptional<float>()).MaxSliderValue(TOptional<float>())
+									.MinDesiredValueWidth(30.f)
+									.OnValueCommitted_Lambda([WeakSelf, WeakV2](float NewVal, ETextCommit::Type) {
+										auto Self = WeakSelf.Pin(); auto V2 = WeakV2.Pin();
+										if (Self.IsValid() && V2.IsValid()) { FLinearColor C = V2->VectorValue; C.G = NewVal; Self->OnInstanceVectorChanged(V2, C); }
+									})
+								]
+							]
+							+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(FMargin(0.f, 0.f, 2.f, 0.f))
+							[
+								SNew(SHorizontalBox)
+								+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+								[
+									SNew(STextBlock).Text(FText::FromString(TEXT("B"))).Font(FMLPTheme::FontSmall()).ColorAndOpacity(FMLPTheme::Muted())
+								]
+								+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(FMargin(2.f, 0.f, 0.f, 0.f))
+								[
+									SNew(SNumericEntryBox<float>)
+									.Value_Lambda([WeakV2]() -> TOptional<float> { auto V2 = WeakV2.Pin(); return V2.IsValid() ? TOptional<float>(V2->VectorValue.B) : TOptional<float>(); })
+									.Font(FMLPTheme::FontSmall())
+									.AllowSpin(true)
+									.MinValue(TOptional<float>()).MaxValue(TOptional<float>())
+									.MinSliderValue(TOptional<float>()).MaxSliderValue(TOptional<float>())
+									.MinDesiredValueWidth(30.f)
+									.OnValueCommitted_Lambda([WeakSelf, WeakV2](float NewVal, ETextCommit::Type) {
+										auto Self = WeakSelf.Pin(); auto V2 = WeakV2.Pin();
+										if (Self.IsValid() && V2.IsValid()) { FLinearColor C = V2->VectorValue; C.B = NewVal; Self->OnInstanceVectorChanged(V2, C); }
+									})
+								]
+							]
+							+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
+							[
+								SNew(SHorizontalBox)
+								+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+								[
+									SNew(STextBlock).Text(FText::FromString(TEXT("A"))).Font(FMLPTheme::FontSmall()).ColorAndOpacity(FMLPTheme::Muted())
+								]
+								+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(FMargin(2.f, 0.f, 0.f, 0.f))
+								[
+									SNew(SNumericEntryBox<float>)
+									.Value_Lambda([WeakV2]() -> TOptional<float> { auto V2 = WeakV2.Pin(); return V2.IsValid() ? TOptional<float>(V2->VectorValue.A) : TOptional<float>(); })
+									.Font(FMLPTheme::FontSmall())
+									.AllowSpin(true)
+									.MinValue(TOptional<float>()).MaxValue(TOptional<float>())
+									.MinSliderValue(TOptional<float>()).MaxSliderValue(TOptional<float>())
+									.MinDesiredValueWidth(30.f)
+									.OnValueCommitted_Lambda([WeakSelf, WeakV2](float NewVal, ETextCommit::Type) {
+										auto Self = WeakSelf.Pin(); auto V2 = WeakV2.Pin();
+										if (Self.IsValid() && V2.IsValid()) { FLinearColor C = V2->VectorValue; C.A = NewVal; Self->OnInstanceVectorChanged(V2, C); }
+									})
+								]
+							]
 						];
-				}
+					}
 				case (int32)EMLPParameterType::Texture:
 				{
 					return SNew(SButton)
