@@ -846,6 +846,11 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 		+ SHorizontalBox::Slot().AutoWidth()
 		[
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("Locate","定位资产")).ToolTipText(LOCTEXT("LocateTT","在内容浏览器中选中并定位此材质")).OnClicked(this,&SMaterialLayoutProPanel::OnLocateAssetClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("CollapseAll","全折叠")).ToolTipText(LOCTEXT("CollapseAllTT","折叠所有分组")).OnClicked(this,&SMaterialLayoutProPanel::OnCollapseAllGroupsClicked)
 		]
 		+ SHorizontalBox::Slot().AutoWidth()
@@ -948,6 +953,19 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildStatusBar()
 // ============================================================================
 
 FReply SMaterialLayoutProPanel::OnRefreshClicked() { RefreshParameters(); return FReply::Handled(); }
+
+FReply SMaterialLayoutProPanel::OnLocateAssetClicked()
+{
+	// Select + focus the target material in the Content Browser.
+	if (TargetMaterial.IsValid())
+	{
+		FContentBrowserModule& CB = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
+		TArray<UObject*> Assets;
+		Assets.Add(TargetMaterial.Get());
+		CB.Get().SyncBrowserToAssets(Assets);
+	}
+	return FReply::Handled();
+}
 
 FReply SMaterialLayoutProPanel::OnApplyChangesClicked()
 {

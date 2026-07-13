@@ -75,6 +75,8 @@ private:
 
 	// --- Toolbar handlers ---
 	FReply OnRefreshClicked();
+	/** Locate + select the target material in the Content Browser. */
+	FReply OnLocateAssetClicked();
 	FReply OnArchiveUnusedClicked();
 	FReply OnDeleteUnusedClicked();
 	FReply OnAutoGroupClicked();

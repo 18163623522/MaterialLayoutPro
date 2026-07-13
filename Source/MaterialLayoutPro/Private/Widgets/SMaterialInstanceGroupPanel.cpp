@@ -525,6 +525,12 @@ TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildToolbar()
 		+ SHorizontalBox::Slot().AutoWidth()
 		[
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("Locate", "定位资产")).ToolTipText(LOCTEXT("LocateTT", "在内容浏览器中选中并定位此材质实例"))
+			.OnClicked(this, &SMaterialInstanceGroupPanel::OnLocateAssetClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("AG", "新建分组")).ToolTipText(LOCTEXT("AGT", "新建一个空分组(可在参数行的组下拉里把参数移过来)"))
 			.OnClicked(this, &SMaterialInstanceGroupPanel::OnAddGroupClicked)
 		]
@@ -1279,6 +1285,20 @@ FReply SMaterialInstanceGroupPanel::OnAddGroupClicked()
 
 	PullFromInstance();
 	RebuildInstanceContent();
+	return FReply::Handled();
+}
+
+FReply SMaterialInstanceGroupPanel::OnLocateAssetClicked()
+{
+	// Select + focus the material instance in the Content Browser so the user can find it
+	// (e.g. to drag into another material, check the path, or open its parent material).
+	if (TargetInstance.IsValid())
+	{
+		FContentBrowserModule& CB = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
+		TArray<UObject*> Assets;
+		Assets.Add(TargetInstance.Get());
+		CB.Get().SyncBrowserToAssets(Assets);
+	}
 	return FReply::Handled();
 }
 

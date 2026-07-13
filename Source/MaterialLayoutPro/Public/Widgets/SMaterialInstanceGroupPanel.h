@@ -178,6 +178,8 @@ private:
 	void OnGroupRenamed(FName OldName, const FText& NewName, ETextCommit::Type CommitType);
 	/** Add a new empty group to the custom group order (AssetUserData only). */
 	FReply OnAddGroupClicked();
+	/** Locate + select the material instance in the Content Browser. */
+	FReply OnLocateAssetClicked();
 	/** Clear every override on the instance (scalar/vector/texture/static-switch), reverting all
 	 *  params to the parent material's defaults. Asks for confirmation first. */
 	FReply OnResetAllOverridesClicked();
