@@ -42,6 +42,8 @@
 #include "MaterialEditorModule.h"
 #include "Toolkits/AssetEditorManager.h"
 #include "Toolkits/AssetEditorToolkit.h"
+#include "MaterialLayoutProSettings.h"
+#include "ISettingsModule.h"
 
 #if ENGINE_MAJOR_VERSION >= 5
 #include "Styling/AppStyle.h"
@@ -825,6 +827,11 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 		+ SHorizontalBox::Slot().AutoWidth()
 		[
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
+			.Text(LOCTEXT("AGR","分组规则")).ToolTipText(LOCTEXT("AGRT","打开项目设置编辑自动分组的前缀规则")).OnClicked(this,&SMaterialLayoutProPanel::OnAutoGroupRulesClicked)
+		]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("GBC","按注释")).ToolTipText(LOCTEXT("GBCT","按注释框分组")).OnClicked(this,&SMaterialLayoutProPanel::OnGroupByCommentClicked)
 		]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
@@ -1020,6 +1027,22 @@ FReply SMaterialLayoutProPanel::OnAutoGroupClicked()
 		}
 	}
 	M->PostEditChange(); M->MarkPackageDirty(); NotifyMaterialEditorChanged(); RefreshParameters();
+	return FReply::Handled();
+}
+
+FReply SMaterialLayoutProPanel::OnAutoGroupRulesClicked()
+{
+	// Deep-link to Project Settings → Plugins → 材质布局 Pro, where the AutoGroupRules array
+	// is editable with the editor's native property UI (add/remove rows, edit prefix→group).
+	// Container="Project"; Category/Section come from the UDeveloperSettings overrides.
+	if (ISettingsModule* SettingsModule = FModuleManager::GetModulePtr<ISettingsModule>("Settings"))
+	{
+		const UMaterialLayoutProSettings* S = GetDefault<UMaterialLayoutProSettings>();
+		SettingsModule->ShowViewer(
+			FName(TEXT("Project")),
+			S->GetCategoryName(),
+			S->GetSectionName());
+	}
 	return FReply::Handled();
 }
 

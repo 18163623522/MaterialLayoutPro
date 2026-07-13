@@ -76,6 +76,8 @@ private:
 	FReply OnArchiveUnusedClicked();
 	FReply OnDeleteUnusedClicked();
 	FReply OnAutoGroupClicked();
+	/** Open Project Settings → Material Layout Pro to edit the auto-group prefix rules. */
+	FReply OnAutoGroupRulesClicked();
 	FReply OnExportClicked();
 	FReply OnImportClicked();
 	FReply OnSortWorkbenchClicked();
