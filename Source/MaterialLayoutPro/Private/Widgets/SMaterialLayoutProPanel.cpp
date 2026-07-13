@@ -40,7 +40,10 @@
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SComboButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
+#include "Framework/Commands/UIAction.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "Widgets/Input/SNumericEntryBox.h"
 #include "Styling/CoreStyle.h"
 #include "Subsystems/AssetEditorSubsystem.h"
@@ -864,70 +867,18 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 			.Text(LOCTEXT("ExpandAll","全展开")).ToolTipText(LOCTEXT("ExpandAllTT","展开所有分组")).OnClicked(this,&SMaterialLayoutProPanel::OnExpandAllGroupsClicked)
 		]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
+		// "更多 ▾" - less-frequently-used actions grouped in a dropdown to keep the toolbar narrow.
 		+ SHorizontalBox::Slot().AutoWidth()
 		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("AG","自动分组")).ToolTipText(LOCTEXT("AGT","按名称前缀自动分组")).OnClicked(this,&SMaterialLayoutProPanel::OnAutoGroupClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("AGR","分组规则")).ToolTipText(LOCTEXT("AGRT","打开项目设置编辑自动分组的前缀规则")).OnClicked(this,&SMaterialLayoutProPanel::OnAutoGroupRulesClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("GBC","按注释")).ToolTipText(LOCTEXT("GBCT","按注释框分组")).OnClicked(this,&SMaterialLayoutProPanel::OnGroupByCommentClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("RP","重置排序号")).ToolTipText(LOCTEXT("RPT","把所有参数的排序号按组内顺序重排为 0,1,2...(修复手动编辑后的碎片/冲突)")).OnClicked(this,&SMaterialLayoutProPanel::OnResetAllPrioritiesClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("AU","归档未用")).ToolTipText(LOCTEXT("AUT","将未使用的参数移至已废弃分组")).OnClicked(this,&SMaterialLayoutProPanel::OnArchiveUnusedClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton")
-			.ButtonColorAndOpacity(FMLPTheme::ButtonDanger()).ForegroundColor(FMLPTheme::ButtonTextOnColor())
+			SNew(SComboButton)
+			.ButtonStyle(MLP_STYLE::Get(), "FlatButton")
 			.ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("DU","删除未用")).ToolTipText(LOCTEXT("DUT","删除未使用的参数")).OnClicked(this,&SMaterialLayoutProPanel::OnDeleteUnusedClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("SW","排序")).ToolTipText(LOCTEXT("SWT","排序工作台")).OnClicked(this,&SMaterialLayoutProPanel::OnSortWorkbenchClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("PE","编辑器")).ToolTipText(LOCTEXT("PET","参数编辑器")).OnClicked(this,&SMaterialLayoutProPanel::OnParameterEditorClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("EX","导出")).ToolTipText(LOCTEXT("EXT","导出 CSV")).OnClicked(this,&SMaterialLayoutProPanel::OnExportClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("IM","导入")).ToolTipText(LOCTEXT("IMT","导入 CSV")).OnClicked(this,&SMaterialLayoutProPanel::OnImportClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("SaveTpl","保存模板")).ToolTipText(LOCTEXT("SaveTplTT","把当前材质的参数->分组映射保存为 .json 模板,可应用到其他材质")).OnClicked(this,&SMaterialLayoutProPanel::OnSaveGroupTemplateClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(),"FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("ApplyTpl","应用模板")).ToolTipText(LOCTEXT("ApplyTplTT","从 .json 模板加载参数->分组映射并应用到当前材质")).OnClicked(this,&SMaterialLayoutProPanel::OnApplyGroupTemplateClicked)
+			.ToolTipText(LOCTEXT("MoreTT", "分组、清理、导入导出、模板等更多操作"))
+			.OnGetMenuContent(this, &SMaterialLayoutProPanel::BuildMoreMenu)
+			.ButtonContent()
+			[
+				SNew(STextBlock).Text(LOCTEXT("More", "更多 ▾"))
+			]
 		]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(2,2)).VAlign(VAlign_Center)[FMLPTheme::MakeSeparator()]
 		// Set-group for multi-selection: input box + apply button.
@@ -953,6 +904,56 @@ TSharedRef<SWidget> SMaterialLayoutProPanel::BuildToolbar()
 			.Text(LOCTEXT("Apply","应用")).ToolTipText(LOCTEXT("ApplyT","将改动写回材质")).OnClicked(this,&SMaterialLayoutProPanel::OnApplyChangesClicked)
 		]
 		;
+}
+
+TSharedRef<SWidget> SMaterialLayoutProPanel::BuildMoreMenu()
+{
+	// Wrap FReply-returning handlers in void lambdas (FExecuteAction requires void).
+	FMenuBuilder Menu(true, nullptr);
+
+	// --- 分组 ---
+	Menu.AddMenuEntry(LOCTEXT("AG","自动分组"), LOCTEXT("AGT","按名称前缀自动分组"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnAutoGroupClicked(); }));
+	Menu.AddMenuEntry(LOCTEXT("AGR","分组规则"), LOCTEXT("AGRT","打开项目设置编辑自动分组的前缀规则"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnAutoGroupRulesClicked(); }));
+	Menu.AddMenuEntry(LOCTEXT("GBC","按注释"), LOCTEXT("GBCT","按注释框分组"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnGroupByCommentClicked(); }));
+	Menu.AddMenuEntry(LOCTEXT("RP","重置排序号"), LOCTEXT("RPT","把所有参数的排序号按组内顺序重排为 0,1,2...(修复手动编辑后的碎片/冲突)"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnResetAllPrioritiesClicked(); }));
+
+	Menu.AddMenuSeparator();
+
+	// --- 清理 ---
+	Menu.AddMenuEntry(LOCTEXT("AU","归档未用"), LOCTEXT("AUT","将未使用的参数移至已废弃分组"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnArchiveUnusedClicked(); }));
+	Menu.AddMenuEntry(LOCTEXT("DU","删除未用"), LOCTEXT("DUT","删除未使用的参数"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnDeleteUnusedClicked(); }));
+
+	Menu.AddMenuSeparator();
+
+	// --- 工具 ---
+	Menu.AddMenuEntry(LOCTEXT("SW","排序工作台"), LOCTEXT("SWT","排序工作台"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnSortWorkbenchClicked(); }));
+	Menu.AddMenuEntry(LOCTEXT("PE","参数编辑器"), LOCTEXT("PET","参数编辑器"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnParameterEditorClicked(); }));
+
+	Menu.AddMenuSeparator();
+
+	// --- CSV ---
+	Menu.AddMenuEntry(LOCTEXT("EX","导出 CSV"), LOCTEXT("EXT","导出 CSV"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnExportClicked(); }));
+	Menu.AddMenuEntry(LOCTEXT("IM","导入 CSV"), LOCTEXT("IMT","导入 CSV"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnImportClicked(); }));
+
+	Menu.AddMenuSeparator();
+
+	// --- 模板 ---
+	Menu.AddMenuEntry(LOCTEXT("SaveTpl","保存分组模板"), LOCTEXT("SaveTplTT","把当前材质的参数->分组映射保存为 .json 模板,可应用到其他材质"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnSaveGroupTemplateClicked(); }));
+	Menu.AddMenuEntry(LOCTEXT("ApplyTpl","应用分组模板"), LOCTEXT("ApplyTplTT","从 .json 模板加载参数->分组映射并应用到当前材质"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnApplyGroupTemplateClicked(); }));
+
+	return Menu.MakeWidget();
 }
 
 TSharedRef<SWidget> SMaterialLayoutProPanel::BuildStatusBar()

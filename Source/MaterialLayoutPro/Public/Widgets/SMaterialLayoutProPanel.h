@@ -42,6 +42,8 @@ private:
 
 	TSharedRef<SWidget> BuildToolbar();
 	TSharedRef<SWidget> BuildStatusBar();
+	/** Build the "更多" dropdown menu content (grouping / cleanup / import-export / templates). */
+	TSharedRef<SWidget> BuildMoreMenu();
 	void RefreshParameters();
 	void RebuildTree();
 
