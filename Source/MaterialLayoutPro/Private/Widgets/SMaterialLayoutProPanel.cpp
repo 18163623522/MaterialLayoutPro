@@ -12,6 +12,7 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionComment.h"
+#include "EdGraph/EdGraph.h"
 #include "Engine/Texture.h"
 #include "Widgets/SMaterialSortWorkbench.h"
 #include "Widgets/SMaterialParameterEditor.h"
@@ -145,11 +146,25 @@ void SMaterialLayoutProPanel::NotifyMaterialEditorChanged()
 		if (Editor.IsValid())
 		{
 			// UpdateMaterialAfterGraphChange re-links expressions from the graph, refreshes the
-			// preview, marks the package dirty, AND — critically — calls SetMaterialDirty(). That
+			// preview, marks the package dirty, AND - critically - calls SetMaterialDirty(). That
 			// sets bMaterialDirty, which the editor checks on close/save to decide whether to
 			// duplicate the preview copy onto OriginalMaterial. Without it, edits made here are
 			// visible live but lost on save/reopen (the saved OriginalMaterial is never updated).
 			Editor->UpdateMaterialAfterGraphChange();
+
+			// The above does NOT refresh the graph node display (the node title/pins cached in the
+			// SGraphNode widgets). Without this, the node shows the OLD value until save/reopen.
+			// Force every graph node to re-read from its material expression by reconstructing it.
+			if (UMaterial* M = TargetMaterial.Get())
+			{
+				if (M->MaterialGraph)
+				{
+					for (UEdGraphNode* Node : M->MaterialGraph->Nodes)
+					{
+						if (Node) Node->ReconstructNode();
+					}
+				}
+			}
 		}
 	}
 }
