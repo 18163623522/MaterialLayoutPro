@@ -37,6 +37,7 @@
 #include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SComboBox.h"
 #include "Widgets/Input/SSearchBox.h"
+#include "Widgets/Input/SComboButton.h"
 #include "Widgets/Colors/SColorPicker.h"
 #include "Styling/CoreStyle.h"
 #include "IMaterialEditor.h"
@@ -525,18 +526,6 @@ TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildToolbar()
 		+ SHorizontalBox::Slot().AutoWidth()
 		[
 			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("Locate", "定位资产")).ToolTipText(LOCTEXT("LocateTT", "在内容浏览器中选中并定位此材质实例"))
-			.OnClicked(this, &SMaterialInstanceGroupPanel::OnLocateAssetClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("AG", "新建分组")).ToolTipText(LOCTEXT("AGT", "新建一个空分组(可在参数行的组下拉里把参数移过来)"))
-			.OnClicked(this, &SMaterialInstanceGroupPanel::OnAddGroupClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
 			.Text(LOCTEXT("R", "刷新")).ToolTipText(LOCTEXT("RT", "重新扫描参数"))
 			.OnClicked(this, &SMaterialInstanceGroupPanel::OnRefreshClicked)
 		]
@@ -552,18 +541,40 @@ TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildToolbar()
 			.Text(LOCTEXT("ExpandAll", "全展开")).ToolTipText(LOCTEXT("ExpandAllTT", "展开所有分组"))
 			.OnClicked(this, &SMaterialInstanceGroupPanel::OnExpandAllGroupsClicked)
 		]
+		// "更多 ▾" - less-frequently-used actions grouped in a dropdown to keep the toolbar narrow.
 		+ SHorizontalBox::Slot().AutoWidth()
 		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("EnableAll", "全部启用覆盖")).ToolTipText(LOCTEXT("EnableAllTT", "用当前值为所有参数启用覆盖"))
-			.OnClicked(this, &SMaterialInstanceGroupPanel::OnEnableAllOverridesClicked)
-		]
-		+ SHorizontalBox::Slot().AutoWidth()
-		[
-			SNew(SButton).ButtonStyle(MLP_STYLE::Get(), "FlatButton").ContentPadding(FMLPTheme::PadBtn())
-			.Text(LOCTEXT("ResetAll", "重置全部覆盖")).ToolTipText(LOCTEXT("ResetAllTT", "清除所有参数覆盖,回退到父材质默认值"))
-			.OnClicked(this, &SMaterialInstanceGroupPanel::OnResetAllOverridesClicked)
+			SNew(SComboButton)
+			.ButtonStyle(MLP_STYLE::Get(), "FlatButton")
+			.ContentPadding(FMLPTheme::PadBtn())
+			.ToolTipText(LOCTEXT("MoreTT", "定位资产、新建分组、覆盖管理等更多操作"))
+			.OnGetMenuContent(this, &SMaterialInstanceGroupPanel::BuildMoreMenu)
+			.ButtonContent()
+			[
+				SNew(STextBlock).Text(LOCTEXT("More", "更多 ▾"))
+			]
 		];
+}
+
+TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildMoreMenu()
+{
+	FMenuBuilder Menu(true, nullptr);
+
+	// --- 资产 / 分组 ---
+	Menu.AddMenuEntry(LOCTEXT("Locate", "定位资产"), LOCTEXT("LocateTT", "在内容浏览器中选中并定位此材质实例"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnLocateAssetClicked(); }));
+	Menu.AddMenuEntry(LOCTEXT("AG", "新建分组"), LOCTEXT("AGT", "新建一个空分组(可在参数行的组下拉里把参数移过来)"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnAddGroupClicked(); }));
+
+	Menu.AddMenuSeparator();
+
+	// --- 覆盖管理 ---
+	Menu.AddMenuEntry(LOCTEXT("EnableAll", "全部启用覆盖"), LOCTEXT("EnableAllTT", "用当前值为所有参数启用覆盖"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnEnableAllOverridesClicked(); }));
+	Menu.AddMenuEntry(LOCTEXT("ResetAll", "重置全部覆盖"), LOCTEXT("ResetAllTT", "清除所有参数覆盖,回退到父材质默认值"), FSlateIcon(),
+		FExecuteAction::CreateLambda([this]() { OnResetAllOverridesClicked(); }));
+
+	return Menu.MakeWidget();
 }
 
 TSharedRef<SWidget> SMaterialInstanceGroupPanel::BuildStatusBar()

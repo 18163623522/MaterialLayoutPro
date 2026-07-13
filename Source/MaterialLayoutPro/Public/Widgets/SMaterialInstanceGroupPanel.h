@@ -139,6 +139,8 @@ private:
 	// --- UI build / refresh ---
 	TSharedRef<SWidget> BuildToolbar();
 	TSharedRef<SWidget> BuildStatusBar();
+	/** Build the "更多" dropdown menu content (locate / new group / enable-all / reset-all overrides). */
+	TSharedRef<SWidget> BuildMoreMenu();
 	TSharedRef<SWidget> BuildInitialContent();
 	/** Clear + repopulate the scrollable group list. Called by every state-changing handler. */
 	void RebuildInstanceContent();
